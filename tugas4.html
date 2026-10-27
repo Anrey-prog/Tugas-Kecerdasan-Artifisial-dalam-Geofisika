@@ -1,0 +1,1882 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Klimatologi & Curah Hujan Wilayah Sulawesi</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+    }
+    .bmkg-kering { background-color: #fef3c7; color: #92400e; }
+    .bmkg-rendah { background-color: #dcfce7; color: #166534; }
+    .bmkg-menengah { background-color: #bae6fd; color: #075985; }
+    .bmkg-tinggi { background-color: #38bdf8; color: #0c4a6e; font-weight: 600; }
+    .bmkg-sangat-tinggi { background-color: #1d4ed8; color: #ffffff; font-weight: 700; }
+    .prov-path {
+      transition: fill 0.35s ease, transform 0.25s ease, filter 0.25s ease, stroke-width 0.2s ease;
+      cursor: pointer;
+      transform-origin: center;
+      transform-box: fill-box;
+    }
+    .prov-path:hover {
+      filter: brightness(1.12) drop-shadow(0 6px 12px rgba(14, 165, 233, 0.45));
+      stroke: #ffffff;
+      stroke-width: 3px;
+    }
+    .prov-selected {
+      stroke: #facc15 !important;
+      stroke-width: 3.5px !important;
+      filter: drop-shadow(0 0 14px rgba(250, 204, 21, 0.65));
+    }
+    @keyframes pulseRing {
+      0% { transform: scale(0.85); opacity: 0.9; }
+      70% { transform: scale(2.2); opacity: 0; }
+      100% { transform: scale(2.2); opacity: 0; }
+    }
+    .pulse-circle {
+      transform-origin: center;
+      transform-box: fill-box;
+      animation: pulseRing 2s infinite cubic-bezier(0.2, 0.8, 0.4, 1);
+    }
+    @keyframes rainDrop {
+      0% { stroke-dashoffset: 24; opacity: 0.25; }
+      50% { opacity: 0.85; }
+      100% { stroke-dashoffset: 0; opacity: 0.25; }
+    }
+    .rain-anim {
+      stroke-dasharray: 6 6;
+      animation: rainDrop 1.1s linear infinite;
+    }
+    .choropleth-ocean {
+      background: radial-gradient(circle at 50% 42%, #a8d0f8 0%, #8ec0f0 55%, #76aee6 100%);
+    }
+    .station-badge {
+      transition: transform 0.2s ease;
+      transform-origin: center;
+      transform-box: fill-box;
+    }
+    .station-marker:hover .station-badge {
+      transform: scale(1.08);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Top Header Banner -->
+  <header class="bg-gradient-to-r from-slate-900 via-sky-950 to-teal-900 text-white shadow-lg">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2.5">
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-500/20 text-teal-300 border border-teal-400/30">
+              BMKG / WMO / BPS Klimatologi
+            </span>
+            <span class="text-xs text-slate-300">Pulau Sulawesi (6 Provinsi)</span>
+          </div>
+          <h1 class="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
+            Dashboard Analisis Curah Hujan Wilayah Sulawesi
+          </h1>
+          <p class="text-sm text-slate-300 mt-1">
+            Pemantauan distribusi curah hujan bulanan (mm), hari hujan, suhu udara (°C), dan klasifikasi iklim Köppen
+          </p>
+        </div>
+
+        <!-- Action Buttons: Export Excel & CSV & Simulasi Input -->
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button id="btnOpenModal" type="button" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 transition">
+            <span>+ Simulasi / Edit Data</span>
+          </button>
+          <button id="btnExportCSV" type="button" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 text-white shadow-sm transition">
+            <span>Unduh CSV</span>
+          </button>
+          <button id="btnExportExcel" type="button" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition">
+            <span>Unduh Excel (.xlsx)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs & Filter Bar -->
+      <div class="mt-5 pt-4 border-t border-white/15 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <nav class="flex flex-wrap gap-2" aria-label="Tabs">
+          <button type="button" data-tab="overview" class="tab-btn px-4 py-2 rounded-lg text-sm font-semibold bg-white text-slate-900 shadow-sm transition">
+            Ringkasan & Grafik Utama
+          </button>
+          <button type="button" data-tab="matrix" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium text-slate-200 hover:bg-white/10 transition">
+            Matriks Heatmap & Tabel Bulanan
+          </button>
+          <button type="button" data-tab="profiles" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium text-slate-200 hover:bg-white/10 transition">
+            Profil Iklim Provinsi & Referensi
+          </button>
+        </nav>
+
+        <!-- Global Interactive Filters -->
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2">
+            <label for="selectProvince" class="text-xs font-medium text-slate-300">Provinsi:</label>
+            <select id="selectProvince" class="bg-slate-800 text-white text-xs sm:text-sm rounded-lg px-3 py-1.5 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-400">
+              <option value="ALL">Semua Provinsi (6 Provinsi)</option>
+              <option value="Sulawesi Selatan">Sulawesi Selatan (Makassar)</option>
+              <option value="Sulawesi Utara">Sulawesi Utara (Manado)</option>
+              <option value="Sulawesi Tenggara">Sulawesi Tenggara (Kendari)</option>
+              <option value="Sulawesi Barat">Sulawesi Barat (Mamuju)</option>
+              <option value="Sulawesi Tengah">Sulawesi Tengah (Palu)</option>
+              <option value="Gorontalo">Gorontalo (Kota Gorontalo)</option>
+            </select>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <label for="selectPeriod" class="text-xs font-medium text-slate-300">Periode:</label>
+            <select id="selectPeriod" class="bg-slate-800 text-white text-xs sm:text-sm rounded-lg px-3 py-1.5 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-400">
+              <option value="ALL">Setahun Penuh (Jan - Des)</option>
+              <option value="WEST">Muson Barat / Basah (Nov - Apr)</option>
+              <option value="EAST">Muson Timur / Kering (Mei - Okt)</option>
+              <option value="Q1">Kuartal I (Jan - Mar)</option>
+              <option value="Q2">Kuartal II (Apr - Jun)</option>
+              <option value="Q3">Kuartal III (Jul - Sep)</option>
+              <option value="Q4">Kuartal IV (Okt - Des)</option>
+            </select>
+          </div>
+
+          <button id="btnResetFilters" type="button" class="text-xs text-teal-300 hover:text-teal-200 underline px-1 py-1">
+            Reset Filter
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Area -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- Dynamic KPI Summary Cards (Always Visible) -->
+    <section aria-label="Indikator Utama" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500" id="kpi1Title">Akumulasi Curah Hujan</span>
+          <span class="px-2 py-0.5 text-xs font-medium rounded bg-sky-100 text-sky-800">Total mm</span>
+        </div>
+        <div class="mt-3">
+          <div class="text-2xl sm:text-3xl font-bold text-slate-900" id="kpi1Value">12.619,3 mm</div>
+          <p class="text-xs text-slate-500 mt-1" id="kpi1Sub">Rata-rata 2.103,2 mm/provinsi per tahun</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Puncak Curah Hujan</span>
+          <span class="px-2 py-0.5 text-xs font-medium rounded bg-blue-100 text-blue-800">Maksimum</span>
+        </div>
+        <div class="mt-3">
+          <div class="text-2xl sm:text-3xl font-bold text-blue-700" id="kpi2Value">734,0 mm</div>
+          <p class="text-xs text-slate-500 mt-1" id="kpi2Sub">Sulawesi Selatan (Makassar) - Januari</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Titik Terendah (Kering)</span>
+          <span class="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">Minimum</span>
+        </div>
+        <div class="mt-3">
+          <div class="text-2xl sm:text-3xl font-bold text-amber-600" id="kpi3Value">15,0 mm</div>
+          <p class="text-xs text-slate-500 mt-1" id="kpi3Sub">Sulawesi Selatan (Makassar) - Agustus</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Suhu Udara Rata-rata</span>
+          <span class="px-2 py-0.5 text-xs font-medium rounded bg-teal-100 text-teal-800">Klimatologi</span>
+        </div>
+        <div class="mt-3">
+          <div class="text-2xl sm:text-3xl font-bold text-teal-700" id="kpi4Value">27,2 °C</div>
+          <p class="text-xs text-slate-500 mt-1" id="kpi4Sub">Rentang provinsi: 26,1 °C (Manado) - 28,0 °C (Makassar)</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 1: OVERVIEW & CHARTS -->
+    <div id="tab-overview" class="space-y-6">
+
+      <!-- INTERACTIVE SULAWESI RAINFALL MAP EXPLORER -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <!-- Map Header & Interactive Controls -->
+        <div class="bg-gradient-to-r from-slate-900 via-slate-800 to-sky-950 text-white px-5 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="inline-block w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping"></span>
+              <span class="text-xs font-semibold uppercase tracking-wider text-sky-300">Peta Spasial Interaktif Pulau Sulawesi</span>
+            </div>
+            <h2 class="text-lg sm:text-xl font-bold mt-0.5">Peta Sebaran & Intensitas Curah Hujan Provinsi Sulawesi</h2>
+            <p class="text-xs text-slate-300 mt-0.5">Klik wilayah provinsi pada peta untuk memfilter grafik, atau putar simulasi bulanan (Januari – Desember)</p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2.5">
+            <!-- Toggle Labels & Zoom Controls for Choropleth Map -->
+            <button type="button" id="btnToggleMapLabels" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/20 transition">
+              <span>Label Stasiun: Aktif</span>
+            </button>
+            <div class="inline-flex rounded-lg bg-slate-950/60 p-0.5 border border-white/15">
+              <button type="button" id="btnZoomInMap" class="px-2.5 py-1 rounded-md text-xs font-bold text-slate-200 hover:bg-white/15 transition" title="Perbesar Peta">+</button>
+              <button type="button" id="btnZoomResetMap" class="px-2.5 py-1 rounded-md text-xs font-medium text-slate-300 hover:bg-white/15 transition" title="Ukuran Normal">100%</button>
+              <button type="button" id="btnZoomOutMap" class="px-2.5 py-1 rounded-md text-xs font-bold text-slate-200 hover:bg-white/15 transition" title="Perkecil Peta">−</button>
+            </div>
+
+            <!-- Play / Pause Monthly Animation -->
+            <button type="button" id="btnPlayMapAnim" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-sm transition">
+              <span id="playAnimIcon">▶</span>
+              <span id="playAnimLabel">Putar Animasi Bulan</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Month Timeline Selector Bar -->
+        <div class="bg-slate-50 border-b border-slate-200 px-5 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-semibold text-slate-600 mr-1">Waktu Peta:</span>
+            <button type="button" data-map-month="PERIOD" class="map-month-btn px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-900 text-white shadow-sm transition">
+              Sesuai Filter Periode
+            </button>
+            <div class="flex flex-wrap gap-1" id="mapMonthButtonsContainer"></div>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-slate-500">Mode tampilan:</span>
+            <span id="mapActiveTimeBadge" class="font-semibold text-sky-800 bg-sky-100 px-2.5 py-0.5 rounded-md border border-sky-200">
+              Rata-rata Bulanan (Jan - Des)
+            </span>
+          </div>
+        </div>
+
+        <!-- Map Body: Left = Visual Map Canvas, Right = Province Ranking & Inspector -->
+        <div class="grid grid-cols-1 lg:grid-cols-12">
+          <!-- Left Column: Map Visualization (7 cols) -->
+          <div class="lg:col-span-7 relative choropleth-ocean p-4 sm:p-6 flex flex-col justify-between min-h-[540px] overflow-hidden border-r border-slate-200">
+            <!-- Top Floating Overlay: Title & Compass -->
+            <div class="flex items-start justify-between pointer-events-none z-10">
+              <div class="bg-slate-900/85 backdrop-blur-md border border-white/20 rounded-xl px-3.5 py-2.5 text-white shadow-lg">
+                <div class="text-[11px] uppercase tracking-wider text-sky-300 font-semibold" id="mapOverlaySubtitle">Peta Tematik Choropleth</div>
+                <div class="text-sm font-bold mt-0.5" id="mapOverlayTitle">Pulau Sulawesi (6 Provinsi)</div>
+                <div class="text-[11px] text-slate-300 mt-0.5" id="mapOverlayHint">Klik provinsi untuk filter • Arahkan kursor untuk detail</div>
+              </div>
+
+              <!-- Compass Rose -->
+              <div class="bg-slate-900/80 backdrop-blur-md border border-white/20 rounded-full w-12 h-12 flex flex-col items-center justify-center text-white text-[10px] font-bold shadow-lg">
+                <span class="text-sky-300 leading-none">U</span>
+                <span class="text-sm leading-none mt-0.5 text-white">▲</span>
+              </div>
+            </div>
+
+            <!-- VECTOR SVG CHOROPLETH MAP CONTAINER (High-Precision Contour from User Image) -->
+            <div id="vectorMapContainer" class="relative my-auto flex items-center justify-center overflow-hidden py-1">
+              <svg id="sulawesiSvgMap" viewBox="0 0 1000 1105" class="w-full max-h-[470px] select-none transition-transform duration-300 ease-out" role="img" aria-label="Peta Tematik Choropleth Curah Hujan Pulau Sulawesi">
+                <defs>
+                  <!-- Rain Overlay Pattern for High Rainfall Zones -->
+                  <pattern id="rainOverlay" width="24" height="24" patternUnits="userSpaceOnUse" patternTransform="rotate(18)">
+                    <line x1="6" y1="0" x2="6" y2="14" stroke="rgba(255,255,255,0.38)" stroke-width="2.2" stroke-linecap="round" class="rain-anim" />
+                    <line x1="18" y1="8" x2="18" y2="22" stroke="rgba(255,255,255,0.28)" stroke-width="2.2" stroke-linecap="round" class="rain-anim" />
+                  </pattern>
+                  <!-- Coastline Outer Glow / Drop Shadow matching reference map -->
+                  <filter id="islandShadow" x="-10%" y="-10%" width="125%" height="125%">
+                    <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#004e64" flood-opacity="0.32"/>
+                  </filter>
+                </defs>
+
+                <!-- Equator Line (Garis Khatulistiwa 0°) matching exact position y=272 in reference image -->
+                <line x1="3" y1="272" x2="990" y2="272" stroke="#00809e" stroke-width="2.4" />
+                <rect x="8" y="264" width="24" height="24" fill="#9ec7f3" rx="4" opacity="0.7" />
+                <text x="15" y="285" fill="#00809e" font-size="23" font-weight="600" font-family="Inter, sans-serif">0°</text>
+                <text x="530" y="262" fill="#005f73" font-size="14" font-weight="700" letter-spacing="2" opacity="0.75">GARIS KHATULISTIWA (0°)</text>
+
+                <!-- Geographic Sea Labels -->
+                <text x="340" y="75" fill="#005f73" font-size="17" font-weight="700" font-style="italic" letter-spacing="3" opacity="0.55">LAUT SULAWESI</text>
+                <text x="20" y="470" fill="#005f73" font-size="16" font-weight="700" font-style="italic" letter-spacing="2" opacity="0.55">SELAT MAKASSAR</text>
+                <text x="415" y="242" fill="#005f73" font-size="16" font-weight="700" font-style="italic" letter-spacing="2.5" opacity="0.6">TELUK TOMINI</text>
+                <text x="680" y="680" fill="#005f73" font-size="18" font-weight="700" font-style="italic" letter-spacing="3" opacity="0.55">LAUT BANDA</text>
+                <text x="315" y="835" fill="#005f73" font-size="15" font-weight="700" font-style="italic" letter-spacing="2" opacity="0.6">TELUK BONE</text>
+
+                <!-- ALL 6 PROVINCES WITH EXACT CONTOURS FROM REFERENCE IMAGE -->
+                <g filter="url(#islandShadow)">
+                  <!-- 1. SULAWESI UTARA -->
+                  <g class="prov-group" data-prov="Sulawesi Utara">
+                    <path id="path-sulut" class="prov-path" data-prov="Sulawesi Utara"
+                      d="M 975 57 L 972 54 L 966 57 L 956 47 L 955 34 L 945 34 L 932 25 L 910 46 L 900 64 L 888 74 L 878 71 L 866 80 L 863 91 L 872 96 L 868 103 L 848 103 L 836 115 L 834 122 L 829 127 L 812 137 L 790 145 L 782 152 L 752 151 L 739 147 L 727 148 L 708 141 L 697 142 L 686 135 L 679 138 L 679 142 L 687 140 L 699 147 L 696 149 L 687 143 L 681 145 L 690 170 L 687 222 L 698 226 L 697 228 L 688 226 L 688 230 L 695 232 L 746 233 L 755 230 L 769 230 L 795 225 L 808 220 L 821 221 L 830 219 L 859 206 L 864 202 L 873 181 L 883 170 L 885 160 L 901 145 L 916 138 L 931 118 L 939 103 L 945 83 L 956 72 L 959 73 L 957 79 L 960 79 L 971 69 Z"
+                      fill="#2563eb" stroke="#006d87" stroke-width="5.5" stroke-linejoin="round" />
+                    <path id="rain-sulut" class="pointer-events-none"
+                      d="M 975 57 L 972 54 L 966 57 L 956 47 L 955 34 L 945 34 L 932 25 L 910 46 L 900 64 L 888 74 L 878 71 L 866 80 L 863 91 L 872 96 L 868 103 L 848 103 L 836 115 L 834 122 L 829 127 L 812 137 L 790 145 L 782 152 L 752 151 L 739 147 L 727 148 L 708 141 L 697 142 L 686 135 L 679 138 L 679 142 L 687 140 L 699 147 L 696 149 L 687 143 L 681 145 L 690 170 L 687 222 L 698 226 L 697 228 L 688 226 L 688 230 L 695 232 L 746 233 L 755 230 L 769 230 L 795 225 L 808 220 L 821 221 L 830 219 L 859 206 L 864 202 L 873 181 L 883 170 L 885 160 L 901 145 L 916 138 L 931 118 L 939 103 L 945 83 L 956 72 L 959 73 L 957 79 L 960 79 L 971 69 Z"
+                      fill="url(#rainOverlay)" opacity="0.85" />
+                  </g>
+
+                  <!-- 2. GORONTALO -->
+                  <g class="prov-group" data-prov="Gorontalo">
+                    <path id="path-gorontalo" class="prov-path" data-prov="Gorontalo"
+                      d="M 458 121 L 459 124 L 470 124 L 471 126 L 459 127 L 463 146 L 463 159 L 458 178 L 451 191 L 451 193 L 454 195 L 449 196 L 447 201 L 469 201 L 478 212 L 487 214 L 512 210 L 520 207 L 535 208 L 557 204 L 583 204 L 599 207 L 621 205 L 650 206 L 660 203 L 679 223 L 688 229 L 687 223 L 685 223 L 682 219 L 684 218 L 687 220 L 687 205 L 690 190 L 690 169 L 681 145 L 675 148 L 673 147 L 679 143 L 678 140 L 669 141 L 653 136 L 641 142 L 632 152 L 628 152 L 614 146 L 602 136 L 590 135 L 566 127 L 549 128 L 521 122 L 515 122 L 508 125 L 502 116 Z"
+                      fill="#0ea5e9" stroke="#006d87" stroke-width="5.5" stroke-linejoin="round" />
+                    <path id="rain-gorontalo" class="pointer-events-none"
+                      d="M 458 121 L 459 124 L 470 124 L 471 126 L 459 127 L 463 146 L 463 159 L 458 178 L 451 191 L 451 193 L 454 195 L 449 196 L 447 201 L 469 201 L 478 212 L 487 214 L 512 210 L 520 207 L 535 208 L 557 204 L 583 204 L 599 207 L 621 205 L 650 206 L 660 203 L 679 223 L 688 229 L 687 223 L 685 223 L 682 219 L 684 218 L 687 220 L 687 205 L 690 190 L 690 169 L 681 145 L 675 148 L 673 147 L 679 143 L 678 140 L 669 141 L 653 136 L 641 142 L 632 152 L 628 152 L 614 146 L 602 136 L 590 135 L 566 127 L 549 128 L 521 122 L 515 122 L 508 125 L 502 116 Z"
+                      fill="url(#rainOverlay)" opacity="0" />
+                  </g>
+
+                  <!-- 3. SULAWESI TENGAH (Includes Togean & Banggai Archipelago) -->
+                  <g class="prov-group" data-prov="Sulawesi Tengah">
+                    <path id="path-sulteng" class="prov-path" data-prov="Sulawesi Tengah"
+                      d="M 760 533 L 758 535 L 759 547 L 772 547 L 773 545 Z M 666 516 L 662 518 L 658 526 L 658 537 L 660 541 L 662 541 L 672 532 L 674 528 Z M 704 506 L 697 507 L 695 520 L 698 520 L 706 509 Z M 632 440 L 624 454 L 621 463 L 621 473 L 626 482 L 630 495 L 643 492 L 654 482 L 660 470 L 665 464 L 667 464 L 673 471 L 674 481 L 664 490 L 664 493 L 675 501 L 685 503 L 687 498 L 688 482 L 690 480 L 697 478 L 706 486 L 710 486 L 719 481 L 720 483 L 715 490 L 715 502 L 722 513 L 735 514 L 738 505 L 738 499 L 730 490 L 727 480 L 723 476 L 728 466 L 730 456 L 720 447 L 706 442 L 699 447 L 688 459 L 681 454 L 686 445 L 686 442 L 680 432 L 674 432 L 670 434 L 656 433 L 644 437 L 635 437 Z M 531 319 L 522 309 L 519 310 L 517 317 L 505 313 L 497 315 L 491 319 L 494 328 L 493 330 L 487 327 L 475 327 L 465 335 L 463 338 L 463 349 L 466 351 L 477 342 L 499 340 L 499 332 L 508 332 L 518 327 L 521 323 L 530 322 Z M 542 301 L 542 304 L 553 310 L 562 321 L 565 320 L 564 308 L 555 302 Z M 463 290 L 457 291 L 448 298 L 453 299 L 463 295 Z M 357 81 L 345 84 L 343 86 L 344 99 L 341 107 L 340 119 L 332 129 L 325 132 L 315 145 L 315 152 L 312 155 L 304 157 L 293 157 L 285 153 L 280 143 L 278 132 L 275 131 L 263 138 L 262 149 L 256 160 L 235 169 L 231 179 L 234 190 L 231 197 L 213 212 L 207 224 L 207 233 L 197 238 L 203 251 L 211 260 L 210 268 L 207 269 L 207 278 L 202 280 L 198 279 L 197 269 L 196 276 L 193 277 L 192 280 L 188 276 L 184 276 L 183 278 L 178 277 L 179 282 L 190 291 L 199 290 L 201 294 L 201 298 L 196 308 L 194 340 L 199 353 L 200 362 L 208 374 L 209 386 L 205 386 L 194 359 L 191 359 L 181 368 L 179 378 L 165 389 L 154 411 L 152 422 L 141 433 L 133 445 L 133 457 L 130 464 L 130 477 L 133 488 L 131 511 L 139 528 L 143 529 L 135 511 L 137 508 L 146 530 L 158 533 L 197 533 L 220 540 L 232 546 L 235 549 L 235 555 L 270 581 L 285 588 L 325 600 L 349 613 L 365 626 L 365 640 L 370 641 L 396 629 L 437 601 L 456 592 L 470 589 L 471 587 L 466 582 L 456 582 L 456 579 L 466 579 L 475 587 L 479 587 L 468 575 L 457 575 L 448 567 L 445 557 L 437 552 L 426 538 L 420 544 L 418 543 L 414 532 L 415 526 L 417 524 L 427 528 L 447 545 L 460 544 L 469 540 L 478 528 L 480 521 L 490 512 L 511 502 L 534 499 L 564 482 L 581 463 L 590 450 L 603 438 L 616 422 L 627 402 L 658 398 L 666 394 L 669 402 L 682 415 L 691 421 L 702 418 L 708 406 L 709 397 L 714 385 L 714 373 L 708 361 L 687 350 L 665 349 L 655 354 L 622 358 L 612 363 L 611 367 L 635 373 L 636 375 L 634 377 L 625 377 L 615 381 L 611 381 L 602 376 L 594 378 L 587 378 L 583 376 L 540 377 L 535 379 L 525 399 L 517 398 L 504 403 L 491 403 L 485 401 L 474 402 L 463 393 L 456 383 L 454 383 L 431 399 L 424 410 L 413 420 L 408 429 L 397 439 L 390 459 L 380 469 L 375 469 L 367 464 L 356 466 L 345 458 L 332 462 L 324 462 L 320 453 L 311 444 L 311 424 L 304 411 L 292 401 L 282 398 L 271 399 L 252 377 L 243 361 L 238 327 L 232 309 L 232 298 L 235 293 L 236 281 L 241 276 L 244 276 L 245 258 L 248 250 L 259 237 L 264 227 L 283 207 L 305 199 L 323 199 L 334 206 L 344 208 L 356 215 L 364 212 L 371 212 L 380 215 L 408 207 L 416 209 L 426 206 L 439 207 L 447 202 L 449 197 L 438 203 L 434 203 L 433 201 L 451 193 L 458 179 L 463 160 L 463 145 L 460 128 L 451 126 L 452 124 L 459 123 L 457 120 L 447 119 L 437 110 L 432 89 L 421 95 L 407 96 L 387 85 L 379 85 L 366 81 Z"
+                      fill="#0ea5e9" stroke="#006d87" stroke-width="5.5" stroke-linejoin="round" />
+                    <path id="rain-sulteng" class="pointer-events-none"
+                      d="M 760 533 L 758 535 L 759 547 L 772 547 L 773 545 Z M 666 516 L 662 518 L 658 526 L 658 537 L 660 541 L 662 541 L 672 532 L 674 528 Z M 704 506 L 697 507 L 695 520 L 698 520 L 706 509 Z M 632 440 L 624 454 L 621 463 L 621 473 L 626 482 L 630 495 L 643 492 L 654 482 L 660 470 L 665 464 L 667 464 L 673 471 L 674 481 L 664 490 L 664 493 L 675 501 L 685 503 L 687 498 L 688 482 L 690 480 L 697 478 L 706 486 L 710 486 L 719 481 L 720 483 L 715 490 L 715 502 L 722 513 L 735 514 L 738 505 L 738 499 L 730 490 L 727 480 L 723 476 L 728 466 L 730 456 L 720 447 L 706 442 L 699 447 L 688 459 L 681 454 L 686 445 L 686 442 L 680 432 L 674 432 L 670 434 L 656 433 L 644 437 L 635 437 Z M 531 319 L 522 309 L 519 310 L 517 317 L 505 313 L 497 315 L 491 319 L 494 328 L 493 330 L 487 327 L 475 327 L 465 335 L 463 338 L 463 349 L 466 351 L 477 342 L 499 340 L 499 332 L 508 332 L 518 327 L 521 323 L 530 322 Z M 542 301 L 542 304 L 553 310 L 562 321 L 565 320 L 564 308 L 555 302 Z M 463 290 L 457 291 L 448 298 L 453 299 L 463 295 Z M 357 81 L 345 84 L 343 86 L 344 99 L 341 107 L 340 119 L 332 129 L 325 132 L 315 145 L 315 152 L 312 155 L 304 157 L 293 157 L 285 153 L 280 143 L 278 132 L 275 131 L 263 138 L 262 149 L 256 160 L 235 169 L 231 179 L 234 190 L 231 197 L 213 212 L 207 224 L 207 233 L 197 238 L 203 251 L 211 260 L 210 268 L 207 269 L 207 278 L 202 280 L 198 279 L 197 269 L 196 276 L 193 277 L 192 280 L 188 276 L 184 276 L 183 278 L 178 277 L 179 282 L 190 291 L 199 290 L 201 294 L 201 298 L 196 308 L 194 340 L 199 353 L 200 362 L 208 374 L 209 386 L 205 386 L 194 359 L 191 359 L 181 368 L 179 378 L 165 389 L 154 411 L 152 422 L 141 433 L 133 445 L 133 457 L 130 464 L 130 477 L 133 488 L 131 511 L 139 528 L 143 529 L 135 511 L 137 508 L 146 530 L 158 533 L 197 533 L 220 540 L 232 546 L 235 549 L 235 555 L 270 581 L 285 588 L 325 600 L 349 613 L 365 626 L 365 640 L 370 641 L 396 629 L 437 601 L 456 592 L 470 589 L 471 587 L 466 582 L 456 582 L 456 579 L 466 579 L 475 587 L 479 587 L 468 575 L 457 575 L 448 567 L 445 557 L 437 552 L 426 538 L 420 544 L 418 543 L 414 532 L 415 526 L 417 524 L 427 528 L 447 545 L 460 544 L 469 540 L 478 528 L 480 521 L 490 512 L 511 502 L 534 499 L 564 482 L 581 463 L 590 450 L 603 438 L 616 422 L 627 402 L 658 398 L 666 394 L 669 402 L 682 415 L 691 421 L 702 418 L 708 406 L 709 397 L 714 385 L 714 373 L 708 361 L 687 350 L 665 349 L 655 354 L 622 358 L 612 363 L 611 367 L 635 373 L 636 375 L 634 377 L 625 377 L 615 381 L 611 381 L 602 376 L 594 378 L 587 378 L 583 376 L 540 377 L 535 379 L 525 399 L 517 398 L 504 403 L 491 403 L 485 401 L 474 402 L 463 393 L 456 383 L 454 383 L 431 399 L 424 410 L 413 420 L 408 429 L 397 439 L 390 459 L 380 469 L 375 469 L 367 464 L 356 466 L 345 458 L 332 462 L 324 462 L 320 453 L 311 444 L 311 424 L 304 411 L 292 401 L 282 398 L 271 399 L 252 377 L 243 361 L 238 327 L 232 309 L 232 298 L 235 293 L 236 281 L 241 276 L 244 276 L 245 258 L 248 250 L 259 237 L 264 227 L 283 207 L 305 199 L 323 199 L 334 206 L 344 208 L 356 215 L 364 212 L 371 212 L 380 215 L 408 207 L 416 209 L 426 206 L 439 207 L 447 202 L 449 197 L 438 203 L 434 203 L 433 201 L 451 193 L 458 179 L 463 160 L 463 145 L 460 128 L 451 126 L 452 124 L 459 123 L 457 120 L 447 119 L 437 110 L 432 89 L 421 95 L 407 96 L 387 85 L 379 85 L 366 81 Z"
+                      fill="url(#rainOverlay)" opacity="0" />
+                  </g>
+
+                  <!-- 4. SULAWESI BARAT -->
+                  <g class="prov-group" data-prov="Sulawesi Barat">
+                    <path id="path-sulbar" class="prov-path" data-prov="Sulawesi Barat"
+                      d="M 233 546 L 211 536 L 198 533 L 159 533 L 146 530 L 146 534 L 144 535 L 143 529 L 139 528 L 139 537 L 117 555 L 115 566 L 110 575 L 106 590 L 108 610 L 105 617 L 94 624 L 89 634 L 80 639 L 69 641 L 57 648 L 56 661 L 61 671 L 71 681 L 68 689 L 58 702 L 58 713 L 66 727 L 67 746 L 73 759 L 76 759 L 70 742 L 70 728 L 67 720 L 68 718 L 71 720 L 73 729 L 73 743 L 80 759 L 98 759 L 108 756 L 109 759 L 111 756 L 117 756 L 119 759 L 119 757 L 126 752 L 128 754 L 122 759 L 128 759 L 136 756 L 152 759 L 151 757 L 142 753 L 142 750 L 153 755 L 156 759 L 168 758 L 187 725 L 203 686 L 213 671 L 216 655 L 233 612 L 237 592 L 235 548 Z"
+                      fill="#0ea5e9" stroke="#006d87" stroke-width="5.5" stroke-linejoin="round" />
+                    <path id="rain-sulbar" class="pointer-events-none"
+                      d="M 233 546 L 211 536 L 198 533 L 159 533 L 146 530 L 146 534 L 144 535 L 143 529 L 139 528 L 139 537 L 117 555 L 115 566 L 110 575 L 106 590 L 108 610 L 105 617 L 94 624 L 89 634 L 80 639 L 69 641 L 57 648 L 56 661 L 61 671 L 71 681 L 68 689 L 58 702 L 58 713 L 66 727 L 67 746 L 73 759 L 76 759 L 70 742 L 70 728 L 67 720 L 68 718 L 71 720 L 73 729 L 73 743 L 80 759 L 98 759 L 108 756 L 109 759 L 111 756 L 117 756 L 119 759 L 119 757 L 126 752 L 128 754 L 122 759 L 128 759 L 136 756 L 152 759 L 151 757 L 142 753 L 142 750 L 153 755 L 156 759 L 168 758 L 187 725 L 203 686 L 213 671 L 216 655 L 233 612 L 237 592 L 235 548 Z"
+                      fill="url(#rainOverlay)" opacity="0" />
+                  </g>
+
+                  <!-- 5. SULAWESI SELATAN -->
+                  <g class="prov-group" data-prov="Sulawesi Selatan">
+                    <path id="path-sulsel" class="prov-path" data-prov="Sulawesi Selatan"
+                      d="M 73 759 L 76 766 L 86 771 L 90 771 L 105 763 L 121 763 L 126 760 L 105 759 L 87 767 L 80 764 L 79 762 L 81 761 L 89 764 L 95 759 L 80 759 L 79 762 L 77 759 Z M 236 555 L 237 591 L 235 603 L 229 623 L 216 654 L 212 671 L 199 693 L 179 740 L 166 759 L 148 759 L 159 769 L 151 791 L 175 836 L 173 849 L 176 859 L 173 866 L 175 884 L 173 891 L 172 909 L 158 942 L 161 952 L 161 961 L 152 979 L 150 987 L 142 996 L 139 1028 L 141 1035 L 149 1048 L 152 1059 L 162 1058 L 167 1067 L 178 1064 L 188 1073 L 197 1075 L 202 1074 L 220 1055 L 246 1058 L 266 1050 L 275 1049 L 285 1058 L 292 1060 L 297 1059 L 287 1026 L 280 1015 L 271 995 L 271 989 L 275 976 L 277 953 L 287 948 L 289 935 L 294 928 L 294 924 L 288 913 L 288 903 L 285 896 L 287 874 L 285 869 L 286 854 L 281 843 L 281 825 L 283 817 L 295 793 L 289 769 L 289 736 L 292 728 L 270 711 L 270 702 L 266 695 L 266 690 L 271 682 L 300 664 L 312 653 L 322 647 L 339 641 L 352 644 L 362 643 L 360 641 L 345 638 L 345 635 L 365 639 L 365 625 L 347 611 L 326 600 L 286 588 L 271 581 Z"
+                      fill="#2563eb" stroke="#006d87" stroke-width="5.5" stroke-linejoin="round" />
+                    <path id="rain-sulsel" class="pointer-events-none"
+                      d="M 73 759 L 76 766 L 86 771 L 90 771 L 105 763 L 121 763 L 126 760 L 105 759 L 87 767 L 80 764 L 79 762 L 81 761 L 89 764 L 95 759 L 80 759 L 79 762 L 77 759 Z M 236 555 L 237 591 L 235 603 L 229 623 L 216 654 L 212 671 L 199 693 L 179 740 L 166 759 L 148 759 L 159 769 L 151 791 L 175 836 L 173 849 L 176 859 L 173 866 L 175 884 L 173 891 L 172 909 L 158 942 L 161 952 L 161 961 L 152 979 L 150 987 L 142 996 L 139 1028 L 141 1035 L 149 1048 L 152 1059 L 162 1058 L 167 1067 L 178 1064 L 188 1073 L 197 1075 L 202 1074 L 220 1055 L 246 1058 L 266 1050 L 275 1049 L 285 1058 L 292 1060 L 297 1059 L 287 1026 L 280 1015 L 271 995 L 271 989 L 275 976 L 277 953 L 287 948 L 289 935 L 294 928 L 294 924 L 288 913 L 288 903 L 285 896 L 287 874 L 285 869 L 286 854 L 281 843 L 281 825 L 283 817 L 295 793 L 289 769 L 289 736 L 292 728 L 270 711 L 270 702 L 266 695 L 266 690 L 271 682 L 300 664 L 312 653 L 322 647 L 339 641 L 352 644 L 362 643 L 360 641 L 345 638 L 345 635 L 365 639 L 365 625 L 347 611 L 326 600 L 286 588 L 271 581 Z"
+                      fill="url(#rainOverlay)" opacity="0.85" />
+                  </g>
+
+                  <!-- 6. SULAWESI TENGGARA (Includes Buton, Muna, Kabaena, Wawonii, Wakatobi) -->
+                  <g class="prov-group" data-prov="Sulawesi Tenggara">
+                    <path id="path-sultra" class="prov-path" data-prov="Sulawesi Tenggara"
+                      d="M 749 1038 L 748 1041 L 752 1048 L 763 1059 L 766 1059 L 763 1045 Z M 725 1007 L 722 1014 L 727 1026 L 741 1024 L 742 1022 L 739 1011 L 737 1009 Z M 508 982 L 500 986 L 489 986 L 482 1007 L 484 1015 L 492 1030 L 506 1043 L 519 1037 L 520 1013 L 522 1006 L 513 995 Z M 663 888 L 649 888 L 638 897 L 632 907 L 627 923 L 628 940 L 624 950 L 624 964 L 621 970 L 621 981 L 616 993 L 614 1005 L 607 1015 L 605 1014 L 602 1007 L 599 992 L 621 961 L 617 948 L 616 929 L 612 918 L 600 920 L 579 934 L 565 936 L 557 947 L 558 960 L 562 968 L 564 979 L 556 990 L 548 1024 L 558 1030 L 561 1030 L 565 1025 L 567 1026 L 568 1030 L 580 1027 L 587 1037 L 600 1024 L 600 1035 L 590 1042 L 592 1056 L 599 1067 L 621 1068 L 631 1064 L 639 1052 L 635 1043 L 638 1038 L 646 1034 L 654 1034 L 666 1031 L 674 1026 L 683 1014 L 682 1011 L 661 996 L 652 996 L 650 989 L 650 967 L 658 947 L 666 938 L 668 938 L 676 947 L 678 947 L 682 936 L 679 925 L 679 913 L 672 901 L 663 894 Z M 643 837 L 643 848 L 650 858 L 663 868 L 676 865 L 688 844 L 688 841 L 681 830 L 667 832 L 659 827 L 656 827 Z M 667 767 L 665 769 L 667 781 L 670 781 L 670 769 Z M 476 587 L 479 591 L 478 593 L 470 588 L 450 594 L 431 604 L 395 629 L 382 636 L 370 640 L 379 646 L 383 656 L 382 659 L 380 658 L 378 650 L 375 646 L 364 642 L 357 643 L 357 645 L 365 646 L 374 651 L 377 658 L 375 670 L 379 677 L 380 685 L 376 701 L 377 714 L 374 722 L 360 737 L 349 757 L 351 767 L 356 773 L 370 784 L 394 808 L 404 810 L 404 821 L 414 821 L 421 832 L 443 837 L 455 843 L 455 855 L 453 862 L 442 873 L 442 894 L 436 912 L 438 926 L 445 937 L 457 943 L 468 952 L 482 950 L 491 954 L 512 955 L 526 949 L 520 936 L 519 926 L 521 918 L 528 907 L 547 900 L 559 899 L 569 894 L 580 897 L 589 892 L 599 893 L 605 902 L 608 903 L 618 897 L 621 892 L 627 895 L 639 885 L 639 861 L 637 852 L 630 840 L 617 840 L 617 843 L 620 847 L 619 849 L 615 849 L 606 845 L 606 835 L 598 828 L 606 821 L 605 818 L 585 811 L 576 796 L 556 788 L 543 779 L 541 773 L 550 767 L 554 756 L 552 752 L 553 749 L 559 751 L 564 748 L 571 761 L 575 761 L 572 749 L 566 748 L 565 745 L 556 736 L 560 726 L 574 721 L 572 708 L 559 703 L 552 697 L 552 693 L 555 688 L 552 677 L 550 675 L 541 673 L 532 661 L 524 659 L 515 648 L 515 638 L 504 619 L 494 606 L 490 595 L 482 588 Z"
+                      fill="#0ea5e9" stroke="#006d87" stroke-width="5.5" stroke-linejoin="round" />
+                    <path id="rain-sultra" class="pointer-events-none"
+                      d="M 749 1038 L 748 1041 L 752 1048 L 763 1059 L 766 1059 L 763 1045 Z M 725 1007 L 722 1014 L 727 1026 L 741 1024 L 742 1022 L 739 1011 L 737 1009 Z M 508 982 L 500 986 L 489 986 L 482 1007 L 484 1015 L 492 1030 L 506 1043 L 519 1037 L 520 1013 L 522 1006 L 513 995 Z M 663 888 L 649 888 L 638 897 L 632 907 L 627 923 L 628 940 L 624 950 L 624 964 L 621 970 L 621 981 L 616 993 L 614 1005 L 607 1015 L 605 1014 L 602 1007 L 599 992 L 621 961 L 617 948 L 616 929 L 612 918 L 600 920 L 579 934 L 565 936 L 557 947 L 558 960 L 562 968 L 564 979 L 556 990 L 548 1024 L 558 1030 L 561 1030 L 565 1025 L 567 1026 L 568 1030 L 580 1027 L 587 1037 L 600 1024 L 600 1035 L 590 1042 L 592 1056 L 599 1067 L 621 1068 L 631 1064 L 639 1052 L 635 1043 L 638 1038 L 646 1034 L 654 1034 L 666 1031 L 674 1026 L 683 1014 L 682 1011 L 661 996 L 652 996 L 650 989 L 650 967 L 658 947 L 666 938 L 668 938 L 676 947 L 678 947 L 682 936 L 679 925 L 679 913 L 672 901 L 663 894 Z M 643 837 L 643 848 L 650 858 L 663 868 L 676 865 L 688 844 L 688 841 L 681 830 L 667 832 L 659 827 L 656 827 Z M 667 767 L 665 769 L 667 781 L 670 781 L 670 769 Z M 476 587 L 479 591 L 478 593 L 470 588 L 450 594 L 431 604 L 395 629 L 382 636 L 370 640 L 379 646 L 383 656 L 382 659 L 380 658 L 378 650 L 375 646 L 364 642 L 357 643 L 357 645 L 365 646 L 374 651 L 377 658 L 375 670 L 379 677 L 380 685 L 376 701 L 377 714 L 374 722 L 360 737 L 349 757 L 351 767 L 356 773 L 370 784 L 394 808 L 404 810 L 404 821 L 414 821 L 421 832 L 443 837 L 455 843 L 455 855 L 453 862 L 442 873 L 442 894 L 436 912 L 438 926 L 445 937 L 457 943 L 468 952 L 482 950 L 491 954 L 512 955 L 526 949 L 520 936 L 519 926 L 521 918 L 528 907 L 547 900 L 559 899 L 569 894 L 580 897 L 589 892 L 599 893 L 605 902 L 608 903 L 618 897 L 621 892 L 627 895 L 639 885 L 639 861 L 637 852 L 630 840 L 617 840 L 617 843 L 620 847 L 619 849 L 615 849 L 606 845 L 606 835 L 598 828 L 606 821 L 605 818 L 585 811 L 576 796 L 556 788 L 543 779 L 541 773 L 550 767 L 554 756 L 552 752 L 553 749 L 559 751 L 564 748 L 571 761 L 575 761 L 572 749 L 566 748 L 565 745 L 556 736 L 560 726 L 574 721 L 572 708 L 559 703 L 552 697 L 552 693 L 555 688 L 552 677 L 550 675 L 541 673 L 532 661 L 524 659 L 515 648 L 515 638 L 504 619 L 494 606 L 490 595 L 482 588 Z"
+                      fill="url(#rainOverlay)" opacity="0" />
+                  </g>
+                </g>
+
+                <!-- STATION RADAR MARKERS & CALLOUT LABELS (Scaled to 1000x1105 viewBox) -->
+                <g id="svgStationMarkersGroup">
+                  <!-- 1. Manado (Sulawesi Utara) -->
+                  <g class="station-marker cursor-pointer" data-prov="Sulawesi Utara" transform="translate(915, 78)">
+                    <circle r="22" fill="rgba(255, 255, 255, 0.45)" class="pulse-circle" />
+                    <circle r="9" fill="#ffffff" stroke="#0f172a" stroke-width="3.5" />
+                    <g class="station-badge" transform="translate(-145, -38)">
+                      <rect x="-110" y="-22" width="220" height="40" rx="10" fill="rgba(15, 23, 42, 0.92)" stroke="#38bdf8" stroke-width="2" />
+                      <text x="0" y="4" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700" id="svg-label-sulut">Sulut: 3.288 mm</text>
+                    </g>
+                  </g>
+
+                  <!-- 2. Gorontalo -->
+                  <g class="station-marker cursor-pointer" data-prov="Gorontalo" transform="translate(585, 185)">
+                    <circle r="20" fill="rgba(255, 255, 255, 0.45)" class="pulse-circle" />
+                    <circle r="8.5" fill="#ffffff" stroke="#0f172a" stroke-width="3.5" />
+                    <g class="station-badge" transform="translate(0, -48)">
+                      <rect x="-118" y="-22" width="236" height="40" rx="10" fill="rgba(15, 23, 42, 0.92)" stroke="#f472b6" stroke-width="2" />
+                      <text x="0" y="4" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700" id="svg-label-gorontalo">Gorontalo: 1.285 mm</text>
+                    </g>
+                  </g>
+
+                  <!-- 3. Palu (Sulawesi Tengah) -->
+                  <g class="station-marker cursor-pointer" data-prov="Sulawesi Tengah" transform="translate(215, 395)">
+                    <circle r="20" fill="rgba(255, 255, 255, 0.45)" class="pulse-circle" />
+                    <circle r="8.5" fill="#ffffff" stroke="#0f172a" stroke-width="3.5" />
+                    <g class="station-badge" transform="translate(155, -8)">
+                      <rect x="-115" y="-22" width="230" height="40" rx="10" fill="rgba(15, 23, 42, 0.92)" stroke="#fb923c" stroke-width="2" />
+                      <text x="0" y="4" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700" id="svg-label-sulteng">Sulteng: 1.432 mm</text>
+                    </g>
+                  </g>
+
+                  <!-- 4. Mamuju (Sulawesi Barat) -->
+                  <g class="station-marker cursor-pointer" data-prov="Sulawesi Barat" transform="translate(108, 608)">
+                    <circle r="20" fill="rgba(255, 255, 255, 0.45)" class="pulse-circle" />
+                    <circle r="8.5" fill="#ffffff" stroke="#0f172a" stroke-width="3.5" />
+                    <g class="station-badge" transform="translate(135, -35)">
+                      <rect x="-110" y="-22" width="220" height="40" rx="10" fill="rgba(15, 23, 42, 0.92)" stroke="#a78bfa" stroke-width="2" />
+                      <text x="0" y="4" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700" id="svg-label-sulbar">Sulbar: 1.496 mm</text>
+                    </g>
+                  </g>
+
+                  <!-- 5. Makassar (Sulawesi Selatan) -->
+                  <g class="station-marker cursor-pointer" data-prov="Sulawesi Selatan" transform="translate(168, 995)">
+                    <circle r="24" fill="rgba(255, 255, 255, 0.5)" class="pulse-circle" />
+                    <circle r="9.5" fill="#ffffff" stroke="#0f172a" stroke-width="3.5" />
+                    <g class="station-badge" transform="translate(140, 42)">
+                      <rect x="-112" y="-22" width="224" height="40" rx="10" fill="rgba(15, 23, 42, 0.94)" stroke="#38bdf8" stroke-width="2.5" />
+                      <text x="0" y="4" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700" id="svg-label-sulsel">Sulsel: 3.086 mm</text>
+                    </g>
+                  </g>
+
+                  <!-- 6. Kendari (Sulawesi Tenggara) -->
+                  <g class="station-marker cursor-pointer" data-prov="Sulawesi Tenggara" transform="translate(585, 805)">
+                    <circle r="22" fill="rgba(255, 255, 255, 0.45)" class="pulse-circle" />
+                    <circle r="9" fill="#ffffff" stroke="#0f172a" stroke-width="3.5" />
+                    <g class="station-badge" transform="translate(150, -28)">
+                      <rect x="-112" y="-22" width="224" height="40" rx="10" fill="rgba(15, 23, 42, 0.92)" stroke="#60a5fa" stroke-width="2" />
+                      <text x="0" y="4" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="700" id="svg-label-sultra">Sultra: 2.032 mm</text>
+                    </g>
+                  </g>
+                </g>
+              </svg>
+
+              <!-- Floating Hover Tooltip inside SVG Map -->
+              <div id="mapFloatingTooltip" class="hidden pointer-events-none absolute z-20 bg-slate-900/95 text-white p-3.5 rounded-xl shadow-2xl border border-sky-400/40 w-64 text-xs">
+                <div class="flex items-center justify-between border-b border-white/15 pb-1.5 mb-2">
+                  <span class="font-bold text-sm text-sky-300" id="ttProvName">Sulawesi Selatan</span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold" id="ttBmkgBadge">Sangat Tinggi</span>
+                </div>
+                <div class="space-y-1 text-slate-200">
+                  <div class="flex justify-between"><span>Stasiun Ibu Kota:</span><strong id="ttCity">Makassar</strong></div>
+                  <div class="flex justify-between"><span>Curah Hujan:</span><strong class="text-white" id="ttRainVal">734,0 mm</strong></div>
+                  <div class="flex justify-between"><span>Rata-rata Bulanan:</span><strong id="ttAvgVal">257,2 mm/bln</strong></div>
+                  <div class="flex justify-between"><span>Suhu Udara:</span><strong class="text-teal-300" id="ttTempVal">28,0 °C</strong></div>
+                  <div class="flex justify-between"><span>Tipe Iklim:</span><strong id="ttKoppen">Am (Muson)</strong></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom Map Choropleth Color Legend (Standar BMKG) -->
+            <div class="bg-slate-900/90 backdrop-blur-md border border-white/20 rounded-xl p-3 z-10 shadow-lg">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[11px] text-slate-200">
+                <span class="font-semibold uppercase tracking-wider text-sky-300">Skala Intensitas Hujan Bulanan (BMKG):</span>
+                <div class="flex flex-wrap items-center gap-2.5">
+                  <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded-sm inline-block border border-white/30" style="background:#f59e0b"></span>&lt;50 mm (Kering)</span>
+                  <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded-sm inline-block border border-white/30" style="background:#10b981"></span>50–100 mm (Rendah)</span>
+                  <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded-sm inline-block border border-white/30" style="background:#0ea5e9"></span>101–300 mm (Menengah)</span>
+                  <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded-sm inline-block border border-white/30" style="background:#2563eb"></span>301–500 mm (Tinggi)</span>
+                  <span class="inline-flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded-sm inline-block border border-white/30" style="background:#1e3a8a"></span>&gt;500 mm (Sangat Tinggi)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Interactive Ranking & Selected Region Inspector (5 cols) -->
+          <div class="lg:col-span-5 p-5 bg-white flex flex-col justify-between space-y-5">
+            <div>
+              <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Peringkat Wilayah Curah Hujan Tertinggi</h3>
+                  <p class="text-xs text-slate-500 mt-0.5" id="rankingSubTitle">Berdasarkan akumulasi & intensitas pada periode terpilih</p>
+                </div>
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-sky-100 text-sky-800">Klik untuk Filter</span>
+              </div>
+
+              <!-- Dynamic Sorted Progress Bars for All 6 Provinces -->
+              <div id="mapProvinceRankingList" class="mt-3 space-y-2.5"></div>
+            </div>
+
+            <!-- Selected / Highlighted Province Spotlight Card -->
+            <div class="rounded-xl bg-slate-900 text-white p-4 border border-slate-800 shadow-md">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-teal-300" id="spotlightHeaderBadge">Sorotan Wilayah Peta</span>
+                <span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-400/30" id="spotlightStatusBadge">Intensitas Tertinggi</span>
+              </div>
+              <h4 class="text-base font-bold mt-1" id="spotlightTitle">Sulawesi Utara (Manado)</h4>
+              <p class="text-xs text-slate-300 mt-1 leading-relaxed" id="spotlightDesc">
+                Memiliki curah hujan tahunan tertinggi di Pulau Sulawesi (3.288,0 mm/tahun) dengan distribusi hujan merata sepanjang tahun.
+              </p>
+              <div class="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/15 text-center">
+                <div class="bg-white/5 rounded-lg p-2">
+                  <div class="text-[10px] text-slate-400">Curah Hujan</div>
+                  <div class="text-xs sm:text-sm font-bold text-sky-300 mt-0.5" id="spotlightMetric1">3.288,0 mm</div>
+                </div>
+                <div class="bg-white/5 rounded-lg p-2">
+                  <div class="text-[10px] text-slate-400">Puncak Bulanan</div>
+                  <div class="text-xs sm:text-sm font-bold text-amber-300 mt-0.5" id="spotlightMetric2">427,0 mm (Jan)</div>
+                </div>
+                <div class="bg-white/5 rounded-lg p-2">
+                  <div class="text-[10px] text-slate-400">Suhu Rata-rata</div>
+                  <div class="text-xs sm:text-sm font-bold text-teal-300 mt-0.5" id="spotlightMetric3">26,1 °C</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Row 1 Charts: Monthly Trend & Annual Comparison -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Monthly Trend Chart (Spans 2 columns on desktop) -->
+        <div class="lg:col-span-2 bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+            <div>
+              <h2 class="text-base font-bold text-slate-900">Pola Distribusi Curah Hujan Bulanan (mm)</h2>
+              <p class="text-xs text-slate-500">Perbandingan dinamika muson antar provinsi di Sulawesi pada periode terpilih</p>
+            </div>
+            <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 self-start">
+              <button type="button" id="btnTrendLine" class="px-3 py-1 text-xs font-semibold rounded-md bg-white text-slate-900 shadow-sm">Garis (Line)</button>
+              <button type="button" id="btnTrendBar" class="px-3 py-1 text-xs font-medium rounded-md text-slate-600 hover:text-slate-900">Batang (Bar)</button>
+            </div>
+          </div>
+          <div class="relative h-80">
+            <canvas id="monthlyTrendChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Province Total & Peak Bar Chart -->
+        <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+          <div class="mb-4">
+            <h2 class="text-base font-bold text-slate-900">Total Akumulasi per Provinsi</h2>
+            <p class="text-xs text-slate-500">Urutan provinsi dari curah hujan tertinggi ke terendah (mm)</p>
+          </div>
+          <div class="relative h-80">
+            <canvas id="provinceTotalChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2 Charts: Temperature vs Rainfall & Rainy Days -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+          <div class="mb-4">
+            <h2 class="text-base font-bold text-slate-900">Puncak vs Minimum Bulanan & Rata-rata Suhu (°C)</h2>
+            <p class="text-xs text-slate-500">Rentang ekstrem basah-kering setiap ibu kota provinsi beserta rata-rata suhu udara</p>
+          </div>
+          <div class="relative h-72">
+            <canvas id="extremesTempChart"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+          <div class="mb-4">
+            <h2 class="text-base font-bold text-slate-900">Frekuensi Hari Hujan Bulanan (Stasiun Utama BMKG/WMO)</h2>
+            <p class="text-xs text-slate-500">Perbandingan jumlah hari hujan per bulan di Makassar (Sulsel), Mamuju (Sulbar), dan Palu (Sulteng)</p>
+          </div>
+          <div class="relative h-72">
+            <canvas id="rainyDaysChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Executive Comparison Table -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">Tabel Ringkasan Kinerja Klimatologi Provinsi Sulawesi</h2>
+            <p class="text-xs text-slate-500">Nilai dihitung otomatis sesuai filter periode aktif di atas</p>
+          </div>
+          <span class="text-xs font-medium text-teal-700 bg-teal-50 px-2.5 py-1 rounded-md border border-teal-200" id="activeFilterBadge">
+            Menampilkan: Semua Provinsi | Setahun Penuh (Jan - Des)
+          </span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="bg-slate-900 text-white text-xs uppercase tracking-wider">
+                <th class="py-3 px-4 font-semibold">Provinsi</th>
+                <th class="py-3 px-4 font-semibold">Ibu Kota / Stasiun</th>
+                <th class="py-3 px-4 font-semibold">Klasifikasi Köppen</th>
+                <th class="py-3 px-4 font-semibold text-right">Total Hujan (mm)</th>
+                <th class="py-3 px-4 font-semibold text-right">Rata-rata / Bln (mm)</th>
+                <th class="py-3 px-4 font-semibold text-right">Puncak Bulanan</th>
+                <th class="py-3 px-4 font-semibold text-right">Minimum Bulanan</th>
+                <th class="py-3 px-4 font-semibold text-right">Suhu Rata-rata</th>
+              </tr>
+            </thead>
+            <tbody id="summaryTableBody" class="divide-y divide-slate-200"></tbody>
+            <tfoot id="summaryTableFoot" class="bg-slate-100 font-semibold text-slate-900 border-t-2 border-slate-300"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: HEATMAP MATRIX & MONTHLY DATA -->
+    <div id="tab-matrix" class="hidden space-y-6">
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">Matriks Heatmap Curah Hujan Bulanan (Januari – Desember)</h2>
+            <p class="text-xs text-slate-500">Pewarnaan sel mengacu pada ambang intensitas curah hujan bulanan BMKG (mm/bulan)</p>
+          </div>
+          <!-- BMKG Legend -->
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="px-2.5 py-1 rounded bmkg-kering">&lt; 50 mm (Kering)</span>
+            <span class="px-2.5 py-1 rounded bmkg-rendah">50–100 mm (Rendah)</span>
+            <span class="px-2.5 py-1 rounded bmkg-menengah">101–300 mm (Menengah)</span>
+            <span class="px-2.5 py-1 rounded bmkg-tinggi">301–500 mm (Tinggi)</span>
+            <span class="px-2.5 py-1 rounded bmkg-sangat-tinggi">&gt; 500 mm (Sangat Tinggi)</span>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs sm:text-sm border-collapse">
+            <thead>
+              <tr class="bg-slate-900 text-white">
+                <th class="py-3 px-3 text-left font-semibold">Provinsi (Stasiun)</th>
+                <th class="py-3 px-2 text-right font-semibold">Jan</th>
+                <th class="py-3 px-2 text-right font-semibold">Feb</th>
+                <th class="py-3 px-2 text-right font-semibold">Mar</th>
+                <th class="py-3 px-2 text-right font-semibold">Apr</th>
+                <th class="py-3 px-2 text-right font-semibold">Mei</th>
+                <th class="py-3 px-2 text-right font-semibold">Jun</th>
+                <th class="py-3 px-2 text-right font-semibold">Jul</th>
+                <th class="py-3 px-2 text-right font-semibold">Agt</th>
+                <th class="py-3 px-2 text-right font-semibold">Sep</th>
+                <th class="py-3 px-2 text-right font-semibold">Okt</th>
+                <th class="py-3 px-2 text-right font-semibold">Nov</th>
+                <th class="py-3 px-2 text-right font-semibold">Des</th>
+                <th class="py-3 px-3 text-right font-semibold bg-teal-900">Total (mm)</th>
+                <th class="py-3 px-3 text-right font-semibold bg-sky-900">Rata-rata</th>
+              </tr>
+            </thead>
+            <tbody id="heatmapTableBody" class="divide-y divide-slate-200"></tbody>
+            <tfoot id="heatmapTableFoot" class="bg-slate-100 font-semibold border-t-2 border-slate-300"></tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Temperature Matrix Table -->
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+        <div class="mb-4">
+          <h2 class="text-base font-bold text-slate-900">Matriks Suhu Udara Rata-rata Harian Bulanan (°C)</h2>
+          <p class="text-xs text-slate-500">Perbandingan suhu rata-rata bulanan (°C) di 6 ibu kota provinsi Sulawesi</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs sm:text-sm border-collapse">
+            <thead>
+              <tr class="bg-slate-800 text-white">
+                <th class="py-2.5 px-3 text-left font-semibold">Provinsi (Ibu Kota)</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Jan</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Feb</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Mar</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Apr</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Mei</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Jun</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Jul</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Agt</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Sep</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Okt</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Nov</th>
+                <th class="py-2.5 px-2 text-right font-semibold">Des</th>
+                <th class="py-2.5 px-3 text-right font-semibold bg-teal-800">Rata-rata (°C)</th>
+              </tr>
+            </thead>
+            <tbody id="tempTableBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: PROVINCE PROFILES & REFERENCES -->
+    <div id="tab-profiles" class="hidden space-y-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" id="provinceCardsContainer"></div>
+
+      <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+        <h2 class="text-base font-bold text-slate-900 mb-2">Metodologi & Catatan Analisis Klimatologi Sulawesi</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs sm:text-sm text-slate-600 mt-3">
+          <div class="p-4 rounded-lg bg-slate-50 border border-slate-200">
+            <h3 class="font-semibold text-slate-900 mb-1">1. Pola Muson Barat vs Muson Timur</h3>
+            <p>Pesisir barat daya seperti <strong>Makassar (Sulawesi Selatan)</strong> mengalami puncak hujan sangat tinggi saat Muson Barat (Desember–Februari, hingga 734 mm di Januari) dan kemarau tajam saat Muson Timur (15 mm di Agustus).</p>
+          </div>
+          <div class="p-4 rounded-lg bg-slate-50 border border-slate-200">
+            <h3 class="font-semibold text-slate-900 mb-1">2. Iklim Ekuatorial & Hutan Hujan (Af)</h3>
+            <p><strong>Manado (Sulawesi Utara)</strong> dan <strong>Kendari (Sulawesi Tenggara)</strong> memiliki curah hujan tinggi hampir sepanjang tahun (3.288 mm dan 2.032 mm/tahun) tanpa bulan kering ekstrem di bawah 60 mm.</p>
+          </div>
+          <div class="p-4 rounded-lg bg-slate-50 border border-slate-200">
+            <h3 class="font-semibold text-slate-900 mb-1">3. Fenomena Lembah Bayangan Hujan</h3>
+            <p><strong>Kota Palu (Sulawesi Tengah)</strong> dan <strong>Gorontalo</strong> berada di kawasan yang terlindung barisan pegunungan (<em>rain shadow effect</em>), menghasilkan curah hujan tahunan terendah di Sulawesi (1.432 mm dan 1.285 mm).</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Modal Simulasi / Edit Data Curah Hujan -->
+  <div id="editModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-200">
+        <div>
+          <h3 class="text-lg font-bold text-slate-900">Simulasi & Edit Data Curah Hujan Bulanan</h3>
+          <p class="text-xs text-slate-500">Ubah nilai curah hujan (mm) untuk menguji pembaruan grafik dan file unduhan Excel secara langsung</p>
+        </div>
+        <button type="button" id="btnCloseModal" class="text-slate-400 hover:text-slate-600 text-sm font-semibold px-2 py-1">
+          Tutup ✕
+        </button>
+      </div>
+
+      <div class="mt-4 space-y-4">
+        <div>
+          <label for="modalProvinceSelect" class="block text-xs font-semibold uppercase text-slate-600 mb-1">Pilih Provinsi yang Akan Diedit:</label>
+          <select id="modalProvinceSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"></select>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="modalMonthInputs"></div>
+
+        <div class="flex items-center justify-between pt-4 border-t border-slate-200">
+          <button type="button" id="btnRestoreDefaultData" class="px-3.5 py-2 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200">
+            Kembalikan Data Resmi WMO/BMKG
+          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" id="btnCancelModal" class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">
+              Batal
+            </button>
+            <button type="button" id="btnSaveModal" class="px-4 py-2 rounded-lg text-sm font-semibold bg-teal-600 hover:bg-teal-500 text-white shadow-sm">
+              Terapkan ke Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toastNotice" class="fixed bottom-5 right-5 z-50 hidden bg-slate-900 text-white px-4 py-3 rounded-xl shadow-lg border border-slate-700 text-sm flex items-center gap-2.5">
+    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+    <span id="toastMessage">Berhasil memperbarui data.</span>
+  </div>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-slate-200 mt-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+      <span>Dashboard Klimatologi & Curah Hujan Wilayah Sulawesi (Output HTML & Excel)</span>
+      <span>Sumber Data: WMO (1991–2020 Normals), BMKG, BPS Provinsi Sulawesi, DWD & Climate-Data</span>
+    </div>
+  </footer>
+
+  <script>
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"];
+
+    const DEFAULT_DATASET = [
+      {
+        prov: "Sulawesi Selatan",
+        svgKey: "sulsel",
+        lat: -5.1331,
+        lng: 119.4136,
+        city: "Makassar",
+        station: "Stasiun Klimatologi Sultan Hasanuddin / WMO",
+        koppen: "Am (Muson Tropis)",
+        color: "#0284c7",
+        rain: [734.0, 563.0, 391.0, 235.0, 97.0, 66.0, 48.0, 15.0, 32.0, 83.0, 273.0, 549.0],
+        temp: [27.7, 27.7, 27.9, 28.2, 28.4, 27.9, 27.6, 27.8, 28.2, 28.7, 28.5, 27.9],
+        rainyDays: [27.0, 26.0, 23.0, 18.0, 8.0, 6.0, 4.0, 1.0, 2.0, 7.0, 17.0, 24.0],
+        peakSeason: "Desember – Februari",
+        desc: "Beriklim muson tropis (Am) dengan kontras musim hujan dan kemarau yang sangat tegas. Januari merupakan bulan terbasah (734 mm, 27 hari hujan), sedangkan Agustus paling kering (15 mm).",
+        sourceUrl: "https://en.wikipedia.org/wiki/Makassar",
+        sourceName: "WMO 1991–2020 & BPS Sulawesi Selatan"
+      },
+      {
+        prov: "Sulawesi Utara",
+        svgKey: "sulut",
+        lat: 1.4931,
+        lng: 124.8413,
+        city: "Manado",
+        station: "Stasiun Meteorologi Sam Ratulangi",
+        koppen: "Af (Hutan Hujan Tropis)",
+        color: "#0d9488",
+        rain: [427.0, 361.0, 338.0, 266.0, 268.0, 277.0, 170.0, 121.0, 149.0, 256.0, 290.0, 365.0],
+        temp: [25.4, 25.4, 25.7, 26.4, 26.4, 26.2, 26.1, 26.6, 26.4, 26.3, 26.3, 25.8],
+        rainyDays: null,
+        peakSeason: "November – Maret (Basah Merata)",
+        desc: "Memiliki akumulasi curah hujan tahunan tertinggi di antara ibu kota provinsi Sulawesi (3.288 mm/tahun) dengan distribusi hujan merata sepanjang tahun dan suhu udara sejuk (rata-rata 26,1 °C).",
+        sourceUrl: "https://en.wikipedia.org/wiki/Manado",
+        sourceName: "Deutscher Wetterdienst (DWD) & BPS Sulut"
+      },
+      {
+        prov: "Sulawesi Tenggara",
+        svgKey: "sultra",
+        lat: -3.9907,
+        lng: 122.5086,
+        city: "Kendari",
+        station: "Stasiun Meteorologi Maritim / Haluoleo",
+        koppen: "Af (Hutan Hujan Tropis)",
+        koppenShort: "Af",
+        color: "#2563eb",
+        rain: [196.0, 207.0, 242.0, 225.0, 241.0, 224.0, 144.0, 91.0, 103.0, 80.0, 98.0, 181.0],
+        temp: [27.5, 27.5, 27.5, 27.4, 27.2, 26.5, 25.9, 26.2, 26.8, 27.6, 28.2, 27.8],
+        rainyDays: null,
+        peakSeason: "Januari – Juni (Puncak Maret & Mei)",
+        desc: "Memiliki curah hujan tahunan 2.032 mm dengan periode basah panjang dari Desember hingga Juni (puncak Maret 242 mm dan Mei 241 mm) serta periode lebih teduh pada Agustus–November.",
+        sourceUrl: "https://en.wikipedia.org/wiki/Kendari",
+        sourceName: "Climate-Data & BPS Sulawesi Tenggara"
+      },
+      {
+        prov: "Sulawesi Barat",
+        svgKey: "sulbar",
+        lat: -2.6686,
+        lng: 118.8622,
+        city: "Mamuju",
+        station: "Stasiun Bandara Tampa Padang",
+        koppen: "Aw/Am (Savana/Muson)",
+        color: "#7c3aed",
+        rain: [219.9, 117.4, 100.2, 144.5, 117.1, 108.1, 67.8, 37.2, 54.8, 146.8, 147.8, 234.7],
+        temp: [27.7, 27.8, 27.9, 27.9, 28.1, 27.7, 27.4, 27.6, 28.1, 28.4, 28.2, 27.7],
+        rainyDays: [12.9, 9.6, 9.6, 9.6, 9.4, 9.5, 5.9, 3.7, 4.7, 10.6, 11.0, 13.4],
+        peakSeason: "Desember – Januari",
+        desc: "Mencatat rata-rata curah hujan tahunan 1.496,3 mm dengan 109,9 hari hujan per tahun. Puncak hujan berlangsung pada Desember (234,7 mm) dan Januari (219,9 mm).",
+        sourceUrl: "https://en.wikipedia.org/wiki/Mamuju_(city)",
+        sourceName: "BMKG Tampa Padang (1991–2020 Normals)"
+      },
+      {
+        prov: "Sulawesi Tengah",
+        svgKey: "sulteng",
+        lat: -0.8950,
+        lng: 119.8594,
+        city: "Palu",
+        station: "Stasiun Meteorologi Mutiara SIS Al-Jufrie",
+        koppen: "Af (Lembah Bayangan Hujan)",
+        color: "#ea580c",
+        rain: [101.0, 88.0, 90.0, 102.0, 130.0, 157.0, 158.0, 147.0, 164.0, 109.0, 110.0, 76.0],
+        temp: [26.6, 26.7, 26.9, 26.9, 27.4, 26.6, 25.7, 26.8, 26.7, 27.7, 27.2, 27.0],
+        rainyDays: [7.0, 8.0, 9.0, 9.0, 10.0, 12.0, 11.0, 9.0, 8.0, 7.0, 9.0, 7.0],
+        peakSeason: "Juni – September (Pola Lokal)",
+        desc: "Terletak di Lembah Palu yang dikelilingi pegunungan tinggi sehingga mengalami efek bayangan hujan (rain shadow) dengan total 1.432 mm/tahun dan 106 hari hujan.",
+        sourceUrl: "https://en.wikipedia.org/wiki/Palu",
+        sourceName: "Weatherbase, Climate-Data & BPS Sulteng"
+      },
+      {
+        prov: "Gorontalo",
+        svgKey: "gorontalo",
+        lat: 0.5422,
+        lng: 123.0614,
+        city: "Kota Gorontalo",
+        station: "Stasiun Klimatologi Gorontalo / Jalaluddin",
+        koppen: "Af (Tropis Moderat)",
+        color: "#db2777",
+        rain: [101.0, 95.0, 101.0, 105.0, 148.0, 133.0, 117.0, 74.0, 67.0, 99.0, 128.0, 117.0],
+        temp: [26.7, 26.6, 26.9, 27.4, 27.4, 26.8, 26.6, 26.8, 27.1, 27.3, 27.5, 27.2],
+        rainyDays: null,
+        peakSeason: "Mei – Juni & November",
+        desc: "Memiliki curah hujan tahunan paling moderat di Pulau Sulawesi (1.285 mm/tahun) karena terlindung topografi Teluk Tomini dan pegunungan utara, dengan puncak pada Mei (148 mm).",
+        sourceUrl: "https://en.wikipedia.org/wiki/Gorontalo_(city)",
+        sourceName: "Climate-Data & BPS Kota Gorontalo"
+      }
+    ];
+
+    // Deep clone dataset for state management
+    let provinceData = JSON.parse(JSON.stringify(DEFAULT_DATASET));
+    let currentProvince = "ALL";
+    let currentPeriod = "ALL";
+    let trendChartType = "line";
+    let mapSelectedMonth = "PERIOD"; // "PERIOD" or 0..11
+    let mapAnimInterval = null;
+    let hoveredProvinceName = null;
+    let mapZoomScale = 1.0;
+    let showStationLabels = true;
+
+    function getChoroplethColor(monthlyMm) {
+      if (monthlyMm < 50) return { fill: "#f59e0b", label: "Kering (<50 mm)", badgeBg: "#fef3c7", badgeText: "#92400e", highRain: false };
+      if (monthlyMm <= 100) return { fill: "#10b981", label: "Rendah (50–100 mm)", badgeBg: "#dcfce7", badgeText: "#166534", highRain: false };
+      if (monthlyMm <= 300) return { fill: "#0ea5e9", label: "Menengah (101–300 mm)", badgeBg: "#bae6fd", badgeText: "#075985", highRain: false };
+      if (monthlyMm <= 500) return { fill: "#2563eb", label: "Tinggi (301–500 mm)", badgeBg: "#38bdf8", badgeText: "#0c4a6e", highRain: true };
+      return { fill: "#1e3a8a", label: "Sangat Tinggi (>500 mm)", badgeBg: "#1d4ed8", badgeText: "#ffffff", highRain: true };
+    }
+
+    function getProvinceMapMetrics(p) {
+      if (mapSelectedMonth !== "PERIOD") {
+        const mIdx = Number(mapSelectedMonth);
+        const val = p.rain[mIdx];
+        const tVal = p.temp[mIdx];
+        return {
+          displayRain: val,
+          monthlyEquiv: val,
+          temp: tVal,
+          unitLabel: `${MONTHS[mIdx]}`,
+          isSingleMonth: true
+        };
+      }
+      const activeIndices = getActiveMonthIndices(currentPeriod);
+      const sumRain = activeIndices.reduce((acc, idx) => acc + p.rain[idx], 0);
+      const avgMonthly = sumRain / activeIndices.length;
+      const avgTemp = activeIndices.reduce((acc, idx) => acc + p.temp[idx], 0) / activeIndices.length;
+      return {
+        displayRain: sumRain,
+        monthlyEquiv: avgMonthly,
+        temp: avgTemp,
+        unitLabel: `${activeIndices.length} bln`,
+        isSingleMonth: false
+      };
+    }
+
+    function renderSulawesiMap() {
+      // Update active time badge
+      const timeBadge = document.getElementById("mapActiveTimeBadge");
+      const rankingSub = document.getElementById("rankingSubTitle");
+      if (mapSelectedMonth !== "PERIOD") {
+        const mName = MONTHS[Number(mapSelectedMonth)];
+        timeBadge.textContent = `Bulan Spesifik: ${mName} (mm/bulan)`;
+        rankingSub.textContent = `Peringkat intensitas curah hujan pada bulan ${mName}`;
+      } else {
+        const periodSelect = document.getElementById("selectPeriod");
+        const periodText = periodSelect.options[periodSelect.selectedIndex].text;
+        timeBadge.textContent = `${periodText}`;
+        rankingSub.textContent = `Berdasarkan akumulasi & rata-rata bulanan (${periodText})`;
+      }
+
+      // Highlight active month button
+      document.querySelectorAll(".map-month-btn").forEach(btn => {
+        const val = btn.getAttribute("data-map-month");
+        if (String(val) === String(mapSelectedMonth)) {
+          btn.className = "map-month-btn px-2.5 py-1 rounded-md text-xs font-semibold bg-sky-600 text-white shadow-sm transition";
+        } else {
+          btn.className = "map-month-btn px-2.5 py-1 rounded-md text-xs font-medium bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition";
+        }
+      });
+
+      // Compute metrics for all 6 provinces
+      const enriched = provinceData.map(p => {
+        const m = getProvinceMapMetrics(p);
+        const choro = getChoroplethColor(m.monthlyEquiv);
+        return { ...p, mapMetrics: m, choro };
+      });
+
+      // Update SVG paths, rain pattern overlays, and station labels
+      enriched.forEach(item => {
+        const pathEl = document.getElementById(`path-${item.svgKey}`);
+        const rainEl = document.getElementById(`rain-${item.svgKey}`);
+        const labelEl = document.getElementById(`svg-label-${item.svgKey}`);
+
+        if (pathEl) {
+          pathEl.setAttribute("fill", item.choro.fill);
+          if (currentProvince === item.prov) {
+            pathEl.classList.add("prov-selected");
+          } else {
+            pathEl.classList.remove("prov-selected");
+          }
+        }
+        if (rainEl) {
+          rainEl.setAttribute("opacity", item.choro.highRain ? "0.85" : "0");
+        }
+        if (labelEl) {
+          const shortName = item.prov.replace("Sulawesi ", "Sul");
+          labelEl.textContent = `${shortName}: ${formatNumber(item.mapMetrics.displayRain, 0)} mm`;
+        }
+      });
+
+      // Sort descending by rainfall to show which provinces have the highest rainfall
+      const sorted = [...enriched].sort((a, b) => b.mapMetrics.displayRain - a.mapMetrics.displayRain);
+      const maxVal = sorted[0]?.mapMetrics.displayRain || 1;
+
+      const rankContainer = document.getElementById("mapProvinceRankingList");
+      rankContainer.innerHTML = "";
+
+      sorted.forEach((item, idx) => {
+        const pct = Math.max(8, Math.round((item.mapMetrics.displayRain / maxVal) * 100));
+        const isSelected = currentProvince === item.prov;
+        const row = document.createElement("div");
+        row.className = `p-2.5 rounded-xl border transition cursor-pointer ${
+          isSelected
+            ? "bg-sky-50 border-sky-400 ring-1 ring-sky-400"
+            : "bg-slate-50/70 hover:bg-slate-100 border-slate-200"
+        }`;
+        row.innerHTML = `
+          <div class="flex items-center justify-between text-xs mb-1.5">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center text-white" style="background-color: ${item.choro.fill}">
+                ${idx + 1}
+              </span>
+              <span class="font-bold text-slate-900">${item.prov}</span>
+              <span class="text-slate-500">(${item.city})</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded text-[10px] font-semibold" style="background-color:${item.choro.badgeBg}; color:${item.choro.badgeText}">
+                ${item.choro.label.split(" (")[0]}
+              </span>
+              <span class="font-bold text-slate-900">${formatNumber(item.mapMetrics.displayRain, 1)} mm</span>
+            </div>
+          </div>
+          <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+            <div class="h-full rounded-full transition-all duration-500" style="width: ${pct}%; background-color: ${item.choro.fill}"></div>
+          </div>
+        `;
+        row.addEventListener("click", () => {
+          toggleProvinceSelectionFromMap(item.prov);
+        });
+        rankContainer.appendChild(row);
+      });
+
+      // Update Spotlight Card (shows hovered province, or selected province, or #1 highest rainfall province)
+      const targetProvName = hoveredProvinceName || (currentProvince !== "ALL" ? currentProvince : sorted[0].prov);
+      const spotlightItem = enriched.find(x => x.prov === targetProvName) || sorted[0];
+      updateSpotlightCard(spotlightItem, sorted.findIndex(x => x.prov === spotlightItem.prov) + 1);
+
+
+    }
+
+    function updateSpotlightCard(item, rankPos) {
+      const maxVal = Math.max(...item.rain);
+      const maxMonth = MONTHS[item.rain.indexOf(maxVal)];
+      document.getElementById("spotlightHeaderBadge").textContent =
+        currentProvince === item.prov ? "Filter Provinsi Aktif" : `Peringkat #${rankPos} Curah Hujan`;
+      document.getElementById("spotlightStatusBadge").textContent = item.choro.label;
+      document.getElementById("spotlightTitle").textContent = `${item.prov} — ${item.city}`;
+      document.getElementById("spotlightDesc").textContent = item.desc;
+      document.getElementById("spotlightMetric1").textContent =
+        item.mapMetrics.isSingleMonth
+          ? `${formatNumber(item.mapMetrics.displayRain, 1)} mm (${item.mapMetrics.unitLabel})`
+          : `${formatNumber(item.mapMetrics.displayRain, 1)} mm`;
+      document.getElementById("spotlightMetric2").textContent = `${formatNumber(maxVal, 0)} mm (${maxMonth})`;
+      document.getElementById("spotlightMetric3").textContent = `${formatNumber(item.mapMetrics.temp, 1)} °C`;
+    }
+
+    function toggleProvinceSelectionFromMap(provName) {
+      const selectProvince = document.getElementById("selectProvince");
+      if (currentProvince === provName) {
+        currentProvince = "ALL";
+        selectProvince.value = "ALL";
+        showToast("Menampilkan kembali seluruh 6 provinsi Sulawesi.");
+      } else {
+        currentProvince = provName;
+        selectProvince.value = provName;
+        showToast(`Memfilter dashboard untuk wilayah ${provName}.`);
+      }
+      renderDashboard();
+    }
+
+    // Chart instances
+    let monthlyTrendChartInstance = null;
+    let provinceTotalChartInstance = null;
+    let extremesTempChartInstance = null;
+    let rainyDaysChartInstance = null;
+
+    function formatNumber(num, decimals = 1) {
+      return Number(num).toLocaleString("id-ID", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      });
+    }
+
+    function getActiveMonthIndices(periodKey) {
+      switch (periodKey) {
+        case "WEST": return [10, 11, 0, 1, 2, 3]; // Nov, Des, Jan, Feb, Mar, Apr
+        case "EAST": return [4, 5, 6, 7, 8, 9];   // Mei - Okt
+        case "Q1": return [0, 1, 2];
+        case "Q2": return [3, 4, 5];
+        case "Q3": return [6, 7, 8];
+        case "Q4": return [9, 10, 11];
+        default: return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+      }
+    }
+
+    function getFilteredProvinces() {
+      if (currentProvince === "ALL") return provinceData;
+      return provinceData.filter(p => p.prov === currentProvince);
+    }
+
+    function getBmkgClass(mm) {
+      if (mm < 50) return "bmkg-kering";
+      if (mm <= 100) return "bmkg-rendah";
+      if (mm <= 300) return "bmkg-menengah";
+      if (mm <= 500) return "bmkg-tinggi";
+      return "bmkg-sangat-tinggi";
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById("toastNotice");
+      const text = document.getElementById("toastMessage");
+      text.textContent = msg;
+      toast.classList.remove("hidden");
+      setTimeout(() => {
+        toast.classList.add("hidden");
+      }, 3200);
+    }
+
+    // Update KPI Cards & Summary Table & Charts
+    function renderDashboard() {
+      const activeIndices = getActiveMonthIndices(currentPeriod);
+      const activeProvs = getFilteredProvinces();
+
+      // Compute KPI metrics across active selection
+      let totalRainAll = 0;
+      let maxRainVal = -Infinity;
+      let maxRainLabel = "";
+      let minRainVal = Infinity;
+      let minRainLabel = "";
+      let tempSum = 0;
+      let tempCount = 0;
+
+      activeProvs.forEach(p => {
+        activeIndices.forEach(mIdx => {
+          const rVal = p.rain[mIdx];
+          const tVal = p.temp[mIdx];
+          totalRainAll += rVal;
+          tempSum += tVal;
+          tempCount += 1;
+
+          if (rVal > maxRainVal) {
+            maxRainVal = rVal;
+            maxRainLabel = `${p.prov} (${p.city}) - ${MONTHS[mIdx]}`;
+          }
+          if (rVal < minRainVal) {
+            minRainVal = rVal;
+            minRainLabel = `${p.prov} (${p.city}) - ${MONTHS[mIdx]}`;
+          }
+        });
+      });
+
+      const avgProvTotal = totalRainAll / activeProvs.length;
+      const avgTemp = tempCount > 0 ? (tempSum / tempCount) : 0;
+
+      document.getElementById("kpi1Title").textContent =
+        currentProvince === "ALL" ? "Akumulasi Curah Hujan (6 Provinsi)" : `Total Hujan ${currentProvince}`;
+      document.getElementById("kpi1Value").textContent = `${formatNumber(totalRainAll, 1)} mm`;
+      document.getElementById("kpi1Sub").textContent =
+        currentProvince === "ALL"
+          ? `Rata-rata ${formatNumber(avgProvTotal, 1)} mm/provinsi (${activeIndices.length} bln)`
+          : `Rata-rata ${formatNumber(totalRainAll / activeIndices.length, 1)} mm/bulan (${activeIndices.length} bln)`;
+
+      document.getElementById("kpi2Value").textContent = `${formatNumber(maxRainVal, 1)} mm`;
+      document.getElementById("kpi2Sub").textContent = maxRainLabel;
+
+      document.getElementById("kpi3Value").textContent = `${formatNumber(minRainVal, 1)} mm`;
+      document.getElementById("kpi3Sub").textContent = minRainLabel;
+
+      document.getElementById("kpi4Value").textContent = `${formatNumber(avgTemp, 1)} °C`;
+      document.getElementById("kpi4Sub").textContent =
+        `Rata-rata harian pada ${activeProvs.length} provinsi (${activeIndices.length} bulan aktif)`;
+
+      // Update filter badge
+      const periodSelect = document.getElementById("selectPeriod");
+      const periodText = periodSelect.options[periodSelect.selectedIndex].text;
+      document.getElementById("activeFilterBadge").textContent =
+        `Menampilkan: ${currentProvince === "ALL" ? "Semua Provinsi (6)" : currentProvince} | ${periodText}`;
+
+      renderSulawesiMap();
+      renderSummaryTable(activeProvs, activeIndices);
+      renderHeatmapAndTempTables();
+      renderProvinceCards();
+      renderCharts(activeProvs, activeIndices);
+    }
+
+    function renderSummaryTable(activeProvs, activeIndices) {
+      const tbody = document.getElementById("summaryTableBody");
+      const tfoot = document.getElementById("summaryTableFoot");
+      tbody.innerHTML = "";
+
+      let grandTotal = 0;
+      let sumAvgMonthly = 0;
+      let overallMax = -Infinity;
+      let overallMin = Infinity;
+      let sumTemp = 0;
+
+      activeProvs.forEach((p, idx) => {
+        const vals = activeIndices.map(i => p.rain[i]);
+        const tVals = activeIndices.map(i => p.temp[i]);
+        const sumRain = vals.reduce((a, b) => a + b, 0);
+        const avgRain = sumRain / vals.length;
+        let pMax = -Infinity, pMaxM = "";
+        let pMin = Infinity, pMinM = "";
+
+        activeIndices.forEach(i => {
+          if (p.rain[i] > pMax) { pMax = p.rain[i]; pMaxM = MONTHS[i]; }
+          if (p.rain[i] < pMin) { pMin = p.rain[i]; pMinM = MONTHS[i]; }
+        });
+
+        const avgT = tVals.reduce((a, b) => a + b, 0) / tVals.length;
+
+        grandTotal += sumRain;
+        sumAvgMonthly += avgRain;
+        if (pMax > overallMax) overallMax = pMax;
+        if (pMin < overallMin) overallMin = pMin;
+        sumTemp += avgT;
+
+        const tr = document.createElement("tr");
+        tr.className = idx % 2 === 1 ? "bg-slate-50/80 hover:bg-sky-50/50 transition" : "bg-white hover:bg-sky-50/50 transition";
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-semibold text-slate-900 flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${p.color}"></span>
+            ${p.prov}
+          </td>
+          <td class="py-3 px-4 text-slate-700">${p.city}</td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 text-xs rounded bg-slate-100 text-slate-700 font-medium">${p.koppen}</span></td>
+          <td class="py-3 px-4 text-right font-bold text-slate-900">${formatNumber(sumRain, 1)}</td>
+          <td class="py-3 px-4 text-right text-slate-700">${formatNumber(avgRain, 1)}</td>
+          <td class="py-3 px-4 text-right text-blue-700 font-medium">${formatNumber(pMax, 1)} <span class="text-xs text-slate-500">(${pMaxM})</span></td>
+          <td class="py-3 px-4 text-right text-amber-700 font-medium">${formatNumber(pMin, 1)} <span class="text-xs text-slate-500">(${pMinM})</span></td>
+          <td class="py-3 px-4 text-right text-teal-700 font-medium">${formatNumber(avgT, 1)} °C</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      const count = activeProvs.length || 1;
+      tfoot.innerHTML = `
+        <tr>
+          <td class="py-3 px-4" colspan="3">Total / Rata-rata Wilayah Terpilih (${activeProvs.length} Provinsi)</td>
+          <td class="py-3 px-4 text-right text-slate-900">${formatNumber(grandTotal, 1)} mm</td>
+          <td class="py-3 px-4 text-right text-slate-900">${formatNumber(sumAvgMonthly / count, 1)} mm</td>
+          <td class="py-3 px-4 text-right text-blue-800">${formatNumber(overallMax, 1)} mm</td>
+          <td class="py-3 px-4 text-right text-amber-800">${formatNumber(overallMin, 1)} mm</td>
+          <td class="py-3 px-4 text-right text-teal-800">${formatNumber(sumTemp / count, 1)} °C</td>
+        </tr>
+      `;
+    }
+
+    function renderHeatmapAndTempTables() {
+      const hBody = document.getElementById("heatmapTableBody");
+      const hFoot = document.getElementById("heatmapTableFoot");
+      const tBody = document.getElementById("tempTableBody");
+      hBody.innerHTML = "";
+      tBody.innerHTML = "";
+
+      const monthSums = new Array(12).fill(0);
+
+      provinceData.forEach((p, idx) => {
+        const total = p.rain.reduce((a, b) => a + b, 0);
+        const avg = total / 12;
+        p.rain.forEach((v, mIdx) => { monthSums[mIdx] += v; });
+
+        const cellsHtml = p.rain.map(v => {
+          const cls = getBmkgClass(v);
+          return `<td class="py-2.5 px-2 text-right border border-white/60 ${cls}">${formatNumber(v, 1)}</td>`;
+        }).join("");
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 font-semibold text-slate-900 bg-white">${p.prov} <span class="text-xs font-normal text-slate-500">(${p.city})</span></td>
+          ${cellsHtml}
+          <td class="py-2.5 px-3 text-right font-bold text-slate-900 bg-teal-50">${formatNumber(total, 1)}</td>
+          <td class="py-2.5 px-3 text-right font-semibold text-slate-700 bg-sky-50">${formatNumber(avg, 1)}</td>
+        `;
+        hBody.appendChild(tr);
+
+        // Temp row
+        const avgTemp = p.temp.reduce((a, b) => a + b, 0) / 12;
+        const tempCells = p.temp.map(t => `<td class="py-2 px-2 text-right text-slate-700">${formatNumber(t, 1)}</td>`).join("");
+        const trTemp = document.createElement("tr");
+        trTemp.className = idx % 2 === 1 ? "bg-slate-50" : "bg-white";
+        trTemp.innerHTML = `
+          <td class="py-2 px-3 font-semibold text-slate-900">${p.prov} (${p.city})</td>
+          ${tempCells}
+          <td class="py-2 px-3 text-right font-bold text-teal-800 bg-teal-50">${formatNumber(avgTemp, 1)}</td>
+        `;
+        tBody.appendChild(trTemp);
+      });
+
+      const avgMonthCells = monthSums.map(s => `<td class="py-2.5 px-2 text-right">${formatNumber(s / provinceData.length, 1)}</td>`).join("");
+      const totalAll = monthSums.reduce((a, b) => a + b, 0);
+      hFoot.innerHTML = `
+        <tr>
+          <td class="py-2.5 px-3 text-left">Rata-rata Bulanan Sulawesi (mm)</td>
+          ${avgMonthCells}
+          <td class="py-2.5 px-3 text-right text-teal-900">${formatNumber(totalAll, 1)}</td>
+          <td class="py-2.5 px-3 text-right text-sky-900">${formatNumber(totalAll / (12 * provinceData.length), 1)}</td>
+        </tr>
+      `;
+    }
+
+    function renderProvinceCards() {
+      const container = document.getElementById("provinceCardsContainer");
+      container.innerHTML = "";
+      provinceData.forEach(p => {
+        const total = p.rain.reduce((a, b) => a + b, 0);
+        const maxVal = Math.max(...p.rain);
+        const minVal = Math.min(...p.rain);
+        const maxMonth = MONTHS[p.rain.indexOf(maxVal)];
+        const minMonth = MONTHS[p.rain.indexOf(minVal)];
+        const avgTemp = p.temp.reduce((a, b) => a + b, 0) / 12;
+
+        const card = document.createElement("div");
+        card.className = "bg-white rounded-xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between";
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between gap-2">
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold text-white" style="background-color: ${p.color}">
+                ${p.prov}
+              </span>
+              <span class="text-xs font-medium text-slate-500">${p.koppen}</span>
+            </div>
+            <h3 class="text-base font-bold text-slate-900 mt-2">${p.city} — ${p.station}</h3>
+            <p class="text-xs text-slate-600 mt-2 leading-relaxed">${p.desc}</p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-100 space-y-2 text-xs">
+            <div class="flex justify-between">
+              <span class="text-slate-500">Total Tahunan:</span>
+              <span class="font-bold text-slate-900">${formatNumber(total, 1)} mm/tahun</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Bulan Terbasah & Terkering:</span>
+              <span class="font-medium text-slate-800">${maxMonth} (${formatNumber(maxVal, 0)} mm) / ${minMonth} (${formatNumber(minVal, 0)} mm)</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Suhu Rata-rata Tahunan:</span>
+              <span class="font-medium text-teal-700">${formatNumber(avgTemp, 1)} °C</span>
+            </div>
+            <div class="pt-1">
+              <a href="${p.sourceUrl}" target="_blank" rel="noopener noreferrer" class="text-sky-600 hover:text-sky-800 font-medium underline">
+                Sumber: ${p.sourceName} ↗
+              </a>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderCharts(activeProvs, activeIndices) {
+      const labels = activeIndices.map(i => MONTHS[i]);
+
+      // 1. Monthly Trend Chart
+      const ctx1 = document.getElementById("monthlyTrendChart").getContext("2d");
+      if (monthlyTrendChartInstance) monthlyTrendChartInstance.destroy();
+      monthlyTrendChartInstance = new Chart(ctx1, {
+        type: trendChartType,
+        data: {
+          labels: labels,
+          datasets: activeProvs.map(p => ({
+            label: `${p.prov} (${p.city})`,
+            data: activeIndices.map(i => p.rain[i]),
+            borderColor: p.color,
+            backgroundColor: trendChartType === "line" ? p.color + "22" : p.color + "CC",
+            borderWidth: 2.5,
+            tension: 0.3,
+            fill: activeProvs.length === 1 && trendChartType === "line",
+            pointRadius: 3.5
+          }))
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.dataset.label}: ${formatNumber(ctx.parsed.y, 1)} mm`
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: "Curah Hujan (mm)" }
+            }
+          }
+        }
+      });
+
+      // 2. Province Total Bar Chart (Sorted descending)
+      const sortedProvs = [...activeProvs].map(p => ({
+        label: p.prov,
+        city: p.city,
+        color: p.color,
+        total: activeIndices.reduce((acc, i) => acc + p.rain[i], 0)
+      })).sort((a, b) => b.total - a.total);
+
+      const ctx2 = document.getElementById("provinceTotalChart").getContext("2d");
+      if (provinceTotalChartInstance) provinceTotalChartInstance.destroy();
+      provinceTotalChartInstance = new Chart(ctx2, {
+        type: "bar",
+        data: {
+          labels: sortedProvs.map(item => item.label),
+          datasets: [{
+            label: "Total Curah Hujan (mm)",
+            data: sortedProvs.map(item => item.total),
+            backgroundColor: sortedProvs.map(item => item.color + "CC"),
+            borderColor: sortedProvs.map(item => item.color),
+            borderWidth: 1.5,
+            borderRadius: 6
+          }]
+        },
+        options: {
+          indexAxis: "y",
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => `Total: ${formatNumber(ctx.parsed.x, 1)} mm`
+              }
+            }
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              title: { display: true, text: "Akumulasi Curah Hujan (mm)" }
+            }
+          }
+        }
+      });
+
+      // 3. Extremes & Temperature Combo Chart
+      const ctx3 = document.getElementById("extremesTempChart").getContext("2d");
+      if (extremesTempChartInstance) extremesTempChartInstance.destroy();
+      extremesTempChartInstance = new Chart(ctx3, {
+        type: "bar",
+        data: {
+          labels: activeProvs.map(p => p.city),
+          datasets: [
+            {
+              label: "Puncak Bulanan (mm)",
+              data: activeProvs.map(p => Math.max(...activeIndices.map(i => p.rain[i]))),
+              backgroundColor: "#0284c7CC",
+              borderRadius: 4,
+              yAxisID: "y"
+            },
+            {
+              label: "Minimum Bulanan (mm)",
+              data: activeProvs.map(p => Math.min(...activeIndices.map(i => p.rain[i]))),
+              backgroundColor: "#f59e0bCC",
+              borderRadius: 4,
+              yAxisID: "y"
+            },
+            {
+              type: "line",
+              label: "Suhu Rata-rata (°C)",
+              data: activeProvs.map(p => {
+                const ts = activeIndices.map(i => p.temp[i]);
+                return ts.reduce((a, b) => a + b, 0) / ts.length;
+              }),
+              borderColor: "#0f766e",
+              backgroundColor: "#0f766e",
+              borderWidth: 2.5,
+              pointRadius: 4,
+              yAxisID: "y1"
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } }
+          },
+          scales: {
+            y: {
+              type: "linear",
+              position: "left",
+              beginAtZero: true,
+              title: { display: true, text: "Curah Hujan (mm)" }
+            },
+            y1: {
+              type: "linear",
+              position: "right",
+              min: 24,
+              max: 30,
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: "Suhu (°C)" }
+            }
+          }
+        }
+      });
+
+      // 4. Rainy Days Chart (Stations with verified WMO/BMKG rainy day normals)
+      const rainyProvs = provinceData.filter(p => Array.isArray(p.rainyDays));
+      const ctx4 = document.getElementById("rainyDaysChart").getContext("2d");
+      if (rainyDaysChartInstance) rainyDaysChartInstance.destroy();
+      rainyDaysChartInstance = new Chart(ctx4, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: rainyProvs.map(p => ({
+            label: `${p.city} (${p.prov})`,
+            data: activeIndices.map(i => p.rainyDays[i]),
+            backgroundColor: p.color + "BB",
+            borderColor: p.color,
+            borderWidth: 1,
+            borderRadius: 3
+          }))
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.dataset.label}: ${formatNumber(ctx.parsed.y, 1)} hari hujan`
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: "Jumlah Hari Hujan (Hari)" }
+            }
+          }
+        }
+      });
+    }
+
+    // Export to Excel (.xlsx) via SheetJS
+    function exportToExcel() {
+      if (typeof XLSX === "undefined") {
+        exportToCSV();
+        return;
+      }
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: Ringkasan Provinsi
+      const summaryRows = [
+        ["DASHBOARD ANALISIS CURAH HUJAN WILAYAH SULAWESI"],
+        ["Sumber: WMO (1991-2020 Normals), BMKG, BPS Provinsi Sulawesi, DWD & Climate-Data"],
+        [],
+        ["Provinsi", "Ibu Kota", "Klasifikasi Köppen", "Total Tahunan (mm)", "Rata-rata Bulanan (mm)", "Puncak Bulanan (mm)", "Minimum Bulanan (mm)", "Suhu Rata-rata (°C)", "Periode Puncak Musim Hujan"]
+      ];
+
+      provinceData.forEach(p => {
+        const total = p.rain.reduce((a, b) => a + b, 0);
+        const avg = total / 12;
+        const maxV = Math.max(...p.rain);
+        const minV = Math.min(...p.rain);
+        const avgT = p.temp.reduce((a, b) => a + b, 0) / 12;
+        summaryRows.push([
+          p.prov,
+          p.city,
+          p.koppen,
+          Number(total.toFixed(1)),
+          Number(avg.toFixed(1)),
+          Number(maxV.toFixed(1)),
+          Number(minV.toFixed(1)),
+          Number(avgT.toFixed(1)),
+          p.peakSeason
+        ]);
+      });
+
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Ringkasan Provinsi");
+
+      // Sheet 2: Matriks Bulanan (mm)
+      const matrixHeader = ["Provinsi", "Ibu Kota", ...MONTHS, "Total Tahunan (mm)", "Rata-rata Bulanan (mm)"];
+      const matrixRows = [matrixHeader];
+      provinceData.forEach(p => {
+        const total = p.rain.reduce((a, b) => a + b, 0);
+        const avg = total / 12;
+        matrixRows.push([p.prov, p.city, ...p.rain, Number(total.toFixed(1)), Number(avg.toFixed(1))]);
+      });
+      const wsMatrix = XLSX.utils.aoa_to_sheet(matrixRows);
+      XLSX.utils.book_append_sheet(wb, wsMatrix, "Data Bulanan (mm)");
+
+      // Sheet 3: Suhu & Hari Hujan
+      const tempHeader = ["Provinsi", "Ibu Kota", ...MONTHS, "Rata-rata Suhu (°C)"];
+      const tempRows = [tempHeader];
+      provinceData.forEach(p => {
+        const avgT = p.temp.reduce((a, b) => a + b, 0) / 12;
+        tempRows.push([p.prov, p.city, ...p.temp, Number(avgT.toFixed(1))]);
+      });
+      const wsTemp = XLSX.utils.aoa_to_sheet(tempRows);
+      XLSX.utils.book_append_sheet(wb, wsTemp, "Suhu Udara (C)");
+
+      XLSX.writeFile(wb, "dashboard_curah_hujan_sulawesi_export.xlsx");
+      showToast("File Excel (.xlsx) berhasil diunduh.");
+    }
+
+    // Export to CSV
+    function exportToCSV() {
+      const headers = ["Provinsi", "Ibu_Kota", "Klasifikasi_Koppen", ...MONTHS.map(m => `Hujan_${m}_mm`), "Total_Tahunan_mm", "Rata_Rata_Bulanan_mm", "Suhu_Rata_Rata_C"];
+      const rows = [headers.join(",")];
+
+      provinceData.forEach(p => {
+        const total = p.rain.reduce((a, b) => a + b, 0);
+        const avg = total / 12;
+        const avgT = p.temp.reduce((a, b) => a + b, 0) / 12;
+        const cols = [
+          `"${p.prov}"`,
+          `"${p.city}"`,
+          `"${p.koppen}"`,
+          ...p.rain.map(v => v.toFixed(1)),
+          total.toFixed(1),
+          avg.toFixed(1),
+          avgT.toFixed(1)
+        ];
+        rows.push(cols.join(","));
+      });
+
+      const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "data_curah_hujan_sulawesi.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("File CSV berhasil diunduh.");
+    }
+
+    // Modal Simulation Setup
+    function populateModalInputs() {
+      const sel = document.getElementById("modalProvinceSelect");
+      const provName = sel.value;
+      const provObj = provinceData.find(p => p.prov === provName) || provinceData[0];
+      const container = document.getElementById("modalMonthInputs");
+      container.innerHTML = "";
+
+      MONTHS.forEach((m, idx) => {
+        const div = document.createElement("div");
+        div.innerHTML = `
+          <label class="block text-xs font-medium text-slate-600 mb-1">${m} (mm)</label>
+          <input type="number" step="0.1" min="0" max="2000" data-month-idx="${idx}" value="${provObj.rain[idx]}"
+            class="modal-rain-input w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    // Wire up all Event Listeners on DOMContentLoaded
+    window.addEventListener("DOMContentLoaded", () => {
+      // Tab switching
+      const tabButtons = document.querySelectorAll(".tab-btn");
+      const tabPanes = {
+        overview: document.getElementById("tab-overview"),
+        matrix: document.getElementById("tab-matrix"),
+        profiles: document.getElementById("tab-profiles")
+      };
+
+      tabButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+          const target = btn.getAttribute("data-tab");
+          tabButtons.forEach(b => {
+            b.className = "tab-btn px-4 py-2 rounded-lg text-sm font-medium text-slate-200 hover:bg-white/10 transition";
+          });
+          btn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-semibold bg-white text-slate-900 shadow-sm transition";
+
+          Object.keys(tabPanes).forEach(k => {
+            if (k === target) {
+              tabPanes[k].classList.remove("hidden");
+            } else {
+              tabPanes[k].classList.add("hidden");
+            }
+          });
+        });
+      });
+
+      // Filters
+      const selectProvince = document.getElementById("selectProvince");
+      const selectPeriod = document.getElementById("selectPeriod");
+
+      selectProvince.addEventListener("change", e => {
+        currentProvince = e.target.value;
+        renderDashboard();
+      });
+
+      selectPeriod.addEventListener("change", e => {
+        currentPeriod = e.target.value;
+        renderDashboard();
+      });
+
+      document.getElementById("btnResetFilters").addEventListener("click", () => {
+        currentProvince = "ALL";
+        currentPeriod = "ALL";
+        selectProvince.value = "ALL";
+        selectPeriod.value = "ALL";
+        renderDashboard();
+        showToast("Filter dikembalikan ke tampilan awal.");
+      });
+
+      // Chart Type Toggle (Line vs Bar)
+      const btnTrendLine = document.getElementById("btnTrendLine");
+      const btnTrendBar = document.getElementById("btnTrendBar");
+
+      btnTrendLine.addEventListener("click", () => {
+        trendChartType = "line";
+        btnTrendLine.className = "px-3 py-1 text-xs font-semibold rounded-md bg-white text-slate-900 shadow-sm";
+        btnTrendBar.className = "px-3 py-1 text-xs font-medium rounded-md text-slate-600 hover:text-slate-900";
+        renderDashboard();
+      });
+
+      btnTrendBar.addEventListener("click", () => {
+        trendChartType = "bar";
+        btnTrendBar.className = "px-3 py-1 text-xs font-semibold rounded-md bg-white text-slate-900 shadow-sm";
+        btnTrendLine.className = "px-3 py-1 text-xs font-medium rounded-md text-slate-600 hover:text-slate-900";
+        renderDashboard();
+      });
+
+      // Export buttons
+      document.getElementById("btnExportExcel").addEventListener("click", exportToExcel);
+      document.getElementById("btnExportCSV").addEventListener("click", exportToCSV);
+
+      // Modal controls
+      const editModal = document.getElementById("editModal");
+      const modalProvinceSelect = document.getElementById("modalProvinceSelect");
+
+      provinceData.forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.prov;
+        opt.textContent = `${p.prov} (${p.city})`;
+        modalProvinceSelect.appendChild(opt);
+      });
+
+      modalProvinceSelect.addEventListener("change", populateModalInputs);
+
+      document.getElementById("btnOpenModal").addEventListener("click", () => {
+        populateModalInputs();
+        editModal.classList.remove("hidden");
+      });
+
+      const closeModal = () => editModal.classList.add("hidden");
+      document.getElementById("btnCloseModal").addEventListener("click", closeModal);
+      document.getElementById("btnCancelModal").addEventListener("click", closeModal);
+
+      document.getElementById("btnSaveModal").addEventListener("click", () => {
+        const provName = modalProvinceSelect.value;
+        const provObj = provinceData.find(p => p.prov === provName);
+        if (provObj) {
+          const inputs = document.querySelectorAll(".modal-rain-input");
+          inputs.forEach(inp => {
+            const idx = Number(inp.getAttribute("data-month-idx"));
+            const val = parseFloat(inp.value);
+            if (!isNaN(val) && val >= 0) {
+              provObj.rain[idx] = val;
+            }
+          });
+        }
+        closeModal();
+        renderDashboard();
+        showToast(`Data curah hujan ${provName} berhasil diperbarui.`);
+      });
+
+      document.getElementById("btnRestoreDefaultData").addEventListener("click", () => {
+        provinceData = JSON.parse(JSON.stringify(DEFAULT_DATASET));
+        populateModalInputs();
+        renderDashboard();
+        showToast("Data resmi WMO/BMKG berhasil dipulihkan.");
+      });
+
+      // Generate Month Buttons for Map Timeline
+      const mapMonthContainer = document.getElementById("mapMonthButtonsContainer");
+      MONTHS.forEach((m, idx) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.setAttribute("data-map-month", String(idx));
+        b.className = "map-month-btn px-2.5 py-1 rounded-md text-xs font-medium bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition";
+        b.textContent = m;
+        mapMonthContainer.appendChild(b);
+      });
+
+      document.querySelectorAll(".map-month-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          stopMapAnimation();
+          mapSelectedMonth = btn.getAttribute("data-map-month");
+          renderSulawesiMap();
+        });
+      });
+
+      // SVG Map Path & Marker Hover + Click interactions
+      const tooltipEl = document.getElementById("mapFloatingTooltip");
+      const vectorContainer = document.getElementById("vectorMapContainer");
+
+      function showMapTooltip(e, provName) {
+        const p = provinceData.find(x => x.prov === provName);
+        if (!p) return;
+        hoveredProvinceName = provName;
+        const m = getProvinceMapMetrics(p);
+        const choro = getChoroplethColor(m.monthlyEquiv);
+
+        document.getElementById("ttProvName").textContent = p.prov;
+        const badge = document.getElementById("ttBmkgBadge");
+        badge.textContent = choro.label.split(" (")[0];
+        badge.style.backgroundColor = choro.badgeBg;
+        badge.style.color = choro.badgeText;
+
+        document.getElementById("ttCity").textContent = p.city;
+        document.getElementById("ttRainVal").textContent = `${formatNumber(m.displayRain, 1)} mm (${m.unitLabel})`;
+        document.getElementById("ttAvgVal").textContent = `${formatNumber(m.monthlyEquiv, 1)} mm/bln`;
+        document.getElementById("ttTempVal").textContent = `${formatNumber(m.temp, 1)} °C`;
+        document.getElementById("ttKoppen").textContent = p.koppen;
+
+        tooltipEl.classList.remove("hidden");
+        const rect = vectorContainer.getBoundingClientRect();
+        const relX = e.clientX - rect.left;
+        const relY = e.clientY - rect.top;
+        tooltipEl.style.left = `${Math.min(Math.max(10, relX + 16), Math.max(20, rect.width - 265))}px`;
+        tooltipEl.style.top = `${Math.min(Math.max(10, relY - 20), Math.max(20, rect.height - 170))}px`;
+
+        renderSulawesiMap();
+      }
+
+      function hideMapTooltip() {
+        hoveredProvinceName = null;
+        tooltipEl.classList.add("hidden");
+        renderSulawesiMap();
+      }
+
+      document.querySelectorAll(".prov-path, .station-marker").forEach(el => {
+        const provName = el.getAttribute("data-prov");
+        el.addEventListener("mousemove", e => showMapTooltip(e, provName));
+        el.addEventListener("mouseleave", hideMapTooltip);
+        el.addEventListener("click", () => toggleProvinceSelectionFromMap(provName));
+      });
+
+      // Map Label Toggle & Zoom Controls
+      const svgMapEl = document.getElementById("sulawesiSvgMap");
+      const markersGroup = document.getElementById("svgStationMarkersGroup");
+      const btnToggleMapLabels = document.getElementById("btnToggleMapLabels");
+
+      btnToggleMapLabels.addEventListener("click", () => {
+        showStationLabels = !showStationLabels;
+        if (showStationLabels) {
+          markersGroup.classList.remove("hidden");
+          btnToggleMapLabels.innerHTML = "<span>Label Stasiun: Aktif</span>";
+        } else {
+          markersGroup.classList.add("hidden");
+          btnToggleMapLabels.innerHTML = "<span>Label Stasiun: Sembunyi</span>";
+        }
+      });
+
+      function applyMapZoom() {
+        svgMapEl.style.transform = `scale(${mapZoomScale})`;
+        document.getElementById("btnZoomResetMap").textContent = `${Math.round(mapZoomScale * 100)}%`;
+      }
+
+      document.getElementById("btnZoomInMap").addEventListener("click", () => {
+        mapZoomScale = Math.min(1.6, Number((mapZoomScale + 0.15).toFixed(2)));
+        applyMapZoom();
+      });
+
+      document.getElementById("btnZoomOutMap").addEventListener("click", () => {
+        mapZoomScale = Math.max(0.75, Number((mapZoomScale - 0.15).toFixed(2)));
+        applyMapZoom();
+      });
+
+      document.getElementById("btnZoomResetMap").addEventListener("click", () => {
+        mapZoomScale = 1.0;
+        applyMapZoom();
+      });
+
+      // Play / Stop Monthly Map Animation
+      const btnPlayMapAnim = document.getElementById("btnPlayMapAnim");
+      const playAnimIcon = document.getElementById("playAnimIcon");
+      const playAnimLabel = document.getElementById("playAnimLabel");
+
+      function stopMapAnimation() {
+        if (mapAnimInterval) {
+          clearInterval(mapAnimInterval);
+          mapAnimInterval = null;
+        }
+        playAnimIcon.textContent = "▶";
+        playAnimLabel.textContent = "Putar Animasi Bulan";
+      }
+
+      btnPlayMapAnim.addEventListener("click", () => {
+        if (mapAnimInterval) {
+          stopMapAnimation();
+          showToast("Animasi bulanan peta dihentikan.");
+          return;
+        }
+        let mIdx = mapSelectedMonth === "PERIOD" ? 0 : (Number(mapSelectedMonth) + 1) % 12;
+        mapSelectedMonth = String(mIdx);
+        playAnimIcon.textContent = "⏸";
+        playAnimLabel.textContent = "Hentikan Animasi";
+        renderSulawesiMap();
+
+        mapAnimInterval = setInterval(() => {
+          mIdx = (mIdx + 1) % 12;
+          mapSelectedMonth = String(mIdx);
+          renderSulawesiMap();
+        }, 1250);
+      });
+
+      // Also reset mapSelectedMonth when Reset Filters is clicked
+      document.getElementById("btnResetFilters").addEventListener("click", () => {
+        stopMapAnimation();
+        mapSelectedMonth = "PERIOD";
+        renderSulawesiMap();
+      });
+
+      // Initial render
+      renderDashboard();
+    });
+  </script>
+</body>
+</html>
